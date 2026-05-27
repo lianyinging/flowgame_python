@@ -58,6 +58,7 @@ class ChainParser:
             "loopNode": self._parse_loop,
             "searchEngineNode": self._parse_search_engine,
             "templateNode": self._parse_template,
+            "htmlTemplateNode": self._parse_template,
             "endNode": self._parse_end,
             "llmNode": self._parse_llm,
             "llmapiNode": self._parse_llmapi,
