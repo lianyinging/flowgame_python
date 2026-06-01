@@ -12,7 +12,7 @@
 
 简体中文 | [English](./README.en-US.md)
 
-**flowgame_python** 是 [FlowGame 前端](https://gitee.com/repeatedly_read/flowgame) 的配套 **Python 后端**：解析 [Tinyflow](https://github.com/tinyflow-ai/tinyflow) 工作流 JSON，执行画布上的节点逻辑，并提供 Redis 流程存储、Qdrant 知识库与 Embedding 能力。前端 `@flowgame/vue` 负责编排与展示，本仓库负责**试运行、对外 API 执行、持久化与向量检索**。
+**flowgame_python** 是 [FlowGame 前端](https://github.com/lianyinging/flowgame) 的配套 **Python 后端**：解析 [Tinyflow](https://github.com/tinyflow-ai/tinyflow) 工作流 JSON，执行画布上的节点逻辑，并提供 Redis 流程存储、Qdrant 知识库与 Embedding 能力。前端 `@flowgame/vue` 负责编排与展示，本仓库负责**试运行、对外 API 执行、持久化与向量检索**。
 
 **与前端新增节点对应的执行支持**：
 
@@ -50,7 +50,7 @@
 ### 1. 安装与配置
 
 ```bash
-git clone https://gitee.com/repeatedly_read/flowgame_python.git
+git clone https://github.com/lianyinging/flowgame_python.git
 cd flowgame_python
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -86,7 +86,7 @@ uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8008 --reload
 ## 与前端联调
 
 1. 启动本服务（端口 **8008**）
-2. 在前端 [flowgame](https://gitee.com/repeatedly_read/flowgame) 或自有 Vue 项目中，Vite 将 `/api` 代理到后端：
+2. 在前端 [flowgame](https://github.com/lianyinging/flowgame) 或自有 Vue 项目中，Vite 将 `/api` 代理到后端：
 
 ```ts
 // vite.config.ts
@@ -188,7 +188,7 @@ flowgame_python/
 ├── run.py                  # 推荐启动脚本
 ├── requirements.txt
 ├── Dockerfile              # Docker 镜像（配合前端 deploy/）
-├── docs/logo.png
+├── logo.png
 └── .env.example
 ```
 
@@ -196,7 +196,7 @@ flowgame_python/
 
 | 仓库 | 说明 |
 |------|------|
-| [flowgame](https://gitee.com/repeatedly_read/flowgame) | 前端 Monorepo（`@flowgame/core`、`@flowgame/vue`） |
+| [flowgame](https://github.com/lianyinging/flowgame) | 前端 Monorepo（`@flowgame/core`、`@flowgame/vue`） |
 | **flowgame_python**（本仓库） | Python 执行器与数据 API |
 
 ---
@@ -216,7 +216,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-浏览器访问 **http://\<服务器IP\>:8009**，Nginx 将 `/api` 转发到本服务。详细步骤见前端仓库 **[Docker部署.md](https://gitee.com/repeatedly_read/flowgame/blob/master/Docker部署.md)**。
+浏览器访问 **http://\<服务器IP\>:8009**，Nginx 将 `/api` 转发到本服务。详细步骤见前端仓库 **[Docker部署.md](https://github.com/lianyinging/flowgame/blob/master/Docker部署.md)**。
 
 ---
 

@@ -12,7 +12,7 @@
 
 [简体中文](./README.md) | English
 
-**flowgame_python** is the **Python backend** for the [FlowGame frontend](https://gitee.com/repeatedly_read/flowgame). It parses [Tinyflow](https://github.com/tinyflow-ai/tinyflow) workflow JSON, executes node logic, and provides Redis flow storage, Qdrant knowledge bases, and Embedding. The frontend `@flowgame/vue` handles editing; this repo handles **trial runs, external API execution, persistence, and vector search**.
+**flowgame_python** is the **Python backend** for the [FlowGame frontend](https://github.com/lianyinging/flowgame). It parses [Tinyflow](https://github.com/tinyflow-ai/tinyflow) workflow JSON, executes node logic, and provides Redis flow storage, Qdrant knowledge bases, and Embedding. The frontend `@flowgame/vue` handles editing; this repo handles **trial runs, external API execution, persistence, and vector search**.
 
 **Execution support for frontend custom nodes**:
 
@@ -50,7 +50,7 @@ Also supports built-in Tinyflow nodes (branches, loops, HTTP, code nodes, etc.).
 ### 1. Install & configure
 
 ```bash
-git clone https://gitee.com/repeatedly_read/flowgame_python.git
+git clone https://github.com/lianyinging/flowgame_python.git
 cd flowgame_python
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -86,7 +86,7 @@ uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8008 --reload
 ## Frontend Integration
 
 1. Start this service on port **8008**
-2. In [flowgame](https://gitee.com/repeatedly_read/flowgame) or your Vue app, proxy `/api` to the backend:
+2. In [flowgame](https://github.com/lianyinging/flowgame) or your Vue app, proxy `/api` to the backend:
 
 ```ts
 server: {
@@ -147,7 +147,7 @@ flowgame_python/
 
 | Repo | Role |
 |------|------|
-| [flowgame](https://gitee.com/repeatedly_read/flowgame) | Frontend monorepo |
+| [flowgame](https://github.com/lianyinging/flowgame) | Frontend monorepo |
 | **flowgame_python** | This backend |
 
 ---
@@ -160,7 +160,7 @@ Clone alongside the frontend repo, then from `flowgame/deploy`:
 docker compose up -d --build
 ```
 
-See frontend **[Docker部署.md](https://gitee.com/repeatedly_read/flowgame/blob/master/Docker部署.md)**.
+See frontend **[Docker部署.md](https://github.com/lianyinging/flowgame/blob/master/Docker部署.md)**.
 
 ---
 
