@@ -1,34 +1,110 @@
-# FlowGame Python（独立后端）
+<div align="center">
 
-从 `smartAi` 抽离的 FlowGame 工作流执行、Redis 工作流存储、Qdrant 知识库 API。
+![FlowGame](./logo.png)
 
-## 环境要求
+</div>
 
-- Python 3.10+
-- Redis、Qdrant（按需；未启动时部分接口会报错）
-- Embedding：配置 `EMBEDDING_API_URL` 使用 HTTP；**未配置时**自动使用项目内 `model/BAAI/bge-small-zh-v1.5`（需 `pip install sentence-transformers`，首次可从 smartAi 复制模型目录）
+<p align="center">
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
+  <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
+  <a href="#许可"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
+</p>
 
-## 快速启动
+简体中文 | [English](./README.en-US.md)
+
+**flowgame_python** 是 [FlowGame 前端](https://gitee.com/repeatedly_read/flowgame) 的配套 **Python 后端**：解析 [Tinyflow](https://github.com/tinyflow-ai/tinyflow) 工作流 JSON，执行画布上的节点逻辑，并提供 Redis 流程存储、Qdrant 知识库与 Embedding 能力。前端 `@flowgame/vue` 负责编排与展示，本仓库负责**试运行、对外 API 执行、持久化与向量检索**。
+
+**与前端新增节点对应的执行支持**：
+
+| 节点 type | 说明 |
+|-----------|------|
+| `node_start_api` | Start API 入口，解析 HTTP 入参并写入链路 memory |
+| `llmapiNode` | 模型调用，按节点配置的 API Key / 接口 / 模型请求大模型 |
+| `knowledgeNodePlus` | 知识库检索+，对接 Qdrant Collection |
+| `memoryWriteNode` / `memoryReadNode` | 记忆写入 / 读取，跨节点会话上下文 |
+| `htmlTemplateNode` | HTML 模板渲染输出 |
+
+同时兼容 Tinyflow 内置节点（条件分支、循环、HTTP、代码节点等）。
+
+## 核心能力
+
+- **工作流执行**：同步 `POST /execute` 与 NDJSON 流式 `POST /execute/stream`（编辑器试运行进度）
+- **Redis 流程存储**：流程列表、按 `methodKey` 加载与保存工作流 JSON
+- **Qdrant 知识库**：Collection 管理、文档入库、向量检索（RAG）
+- **Embedding 可插拔**：HTTP 向量服务或本地 BGE 模型
+- **独立部署**：本地 `python run.py`、Docker Compose（与前端仓库 `deploy/` 联动）
+
+---
+
+## 快速开始
+
+### 环境要求
+
+| 依赖 | 说明 |
+|------|------|
+| Python | **3.10+** |
+| Redis | 流程保存 / 列表（默认 `6379`） |
+| Qdrant | 知识库向量检索（默认 `6333`） |
+| Embedding | 配置 `EMBEDDING_API_URL`，或使用本地 `model/BAAI/bge-small-zh-v1.5` |
+
+### 1. 安装与配置
 
 ```bash
-cd /path/to/flowgame_python
+git clone https://gitee.com/repeatedly_read/flowgame_python.git
+cd flowgame_python
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env        # 按需修改
+cp .env.example .env               # 按需修改端口、Redis、Qdrant 等
+```
+
+### 2. 启动服务
+
+```bash
 python run.py
 ```
+
+默认监听 **http://127.0.0.1:8008**（由 `.env` 中 `FLOWGAME_PORT=8008` 控制）。
 
 或使用 uvicorn：
 
 ```bash
 export PYTHONPATH=.
-uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8001 --reload
+uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8008 --reload
 ```
 
-- 健康检查：<http://127.0.0.1:8001/health>
-- API 文档：<http://127.0.0.1:8001/docs>
-- 接口前缀：`/api/v1/flowGame`
+### 3. 验证
+
+| 地址 | 说明 |
+|------|------|
+| http://127.0.0.1:8008/health | 健康检查 |
+| http://127.0.0.1:8008/docs | Swagger API 文档 |
+| 接口前缀 | `/api/v1/flowGame` |
+
+---
+
+## 与前端联调
+
+1. 启动本服务（端口 **8008**）
+2. 在前端 [flowgame](https://gitee.com/repeatedly_read/flowgame) 或自有 Vue 项目中，Vite 将 `/api` 代理到后端：
+
+```ts
+// vite.config.ts
+server: {
+  proxy: {
+    '/api': { target: 'http://127.0.0.1:8008', changeOrigin: true }
+  }
+}
+```
+
+3. 前端 `configureFlowGameClient({ baseURL: '/api' })` 后即可保存流程、试运行、管理知识库。
+
+| 服务 | 默认地址 |
+|------|----------|
+| 前端编辑器 | http://127.0.0.1:8009 |
+| 本后端 API | http://127.0.0.1:8008 |
+
+---
 
 ## 主要接口
 
@@ -36,26 +112,126 @@ uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8001 --reload
 |------|------|------|
 | POST | `/api/v1/flowGame/execute` | 同步执行工作流 |
 | POST | `/api/v1/flowGame/execute/stream` | NDJSON 流式执行（试运行进度） |
-| GET/POST | `/api/v1/flowGame/redis/*` | 工作流 Redis 读写 |
-| GET/POST | `/api/v1/flowGame/qdrant/*` | 知识库 Collection / 检索 |
+| GET/POST | `/api/v1/flowGame/redis/*` | 工作流 Redis 读写、流程列表 |
+| GET/POST | `/api/v1/flowGame/qdrant/*` | 知识库 Collection / 文档 / 检索 |
+
+**外部调用示例**（按 `methodKey` 执行已保存流程）：
+
+```json
+POST /api/v1/flowGame/execute
+{
+  "methodKey": "my_flow",
+  "variables": { "question": "你好" }
+}
+```
+
+**管理端调试**（直接传画布 JSON）：
+
+```json
+{
+  "workflow": { "nodes": [], "edges": [] },
+  "variables": {}
+}
+```
+
+---
+
+## 环境变量
+
+见 [.env.example](.env.example)，常用项：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `FLOWGAME_HOST` | `0.0.0.0` | 监听地址 |
+| `FLOWGAME_PORT` | `8008` | 服务端口 |
+| `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6379` | 流程存储 |
+| `QDRANT_HOST` / `QDRANT_PORT` | `127.0.0.1` / `6333` | 向量库 |
+| `EMBEDDING_API_URL` | 空 | 外部 Embedding HTTP 服务 |
+| `DEEPSEEK_*` | — | 可选；历史 Tinyflow `llmNode` 服务端环境变量 |
+
+> **模型调用（llmapiNode）** 的 API Key、接口地址、模型名在**流程 JSON 节点参数**中配置，一般无需在 `.env` 填写 Key。
+
+---
 
 ## Embedding（向量）
 
 优先级：
 
-1. **`EMBEDDING_API_URL`** — HTTP 服务（POST `{"texts":["..."]}`）
-2. **本地 BGE** — `model/BAAI/bge-small-zh-v1.5`（默认路径，可用 `EMBEDDING_MODEL_PATH` 覆盖）
-3. 若本地不存在，回退从 HuggingFace 下载 `BAAI/bge-small-zh-v1.5`
+1. **`EMBEDDING_API_URL`** — HTTP 服务（POST `{"texts":["..."]}`，返回向量数组）
+2. **本地 BGE** — `model/BAAI/bge-small-zh-v1.5`（可用 `EMBEDDING_MODEL_PATH` 覆盖）
+3. 本地不存在时，从 HuggingFace 下载 `BAAI/bge-small-zh-v1.5`
 
-复制模型（与原 smartAi 一致）：
+复制已有模型目录：
 
 ```bash
 mkdir -p model/BAAI
-rsync -a /path/to/smartAi/model/BAAI/bge-small-zh-v1.5/ model/BAAI/bge-small-zh-v1.5/
+rsync -a /path/to/existing/bge-small-zh-v1.5/ model/BAAI/bge-small-zh-v1.5/
 ```
 
 状态接口：`GET /api/v1/flowGame/qdrant/embedding/status`
 
-## 与前端联调
+---
 
-独立前端 `flowgame` 的 Vite 已将 `/api` 代理到 `http://127.0.0.1:8001`，先启动本服务再 `pnpm dev` 即可。
+## 项目结构
+
+```
+flowgame_python/
+├── src/flowgame/
+│   ├── app.py              # FastAPI 入口
+│   ├── router.py           # 执行 / 流式接口
+│   ├── service.py          # 工作流执行编排
+│   ├── parser/             # Tinyflow JSON → 执行链
+│   ├── chain/              # 节点运行时（LLM、知识库、记忆等）
+│   ├── redis/              # 流程 Redis API
+│   ├── qdrant/             # 知识库与 Embedding
+│   └── memory_context.py   # 记忆读写上下文
+├── run.py                  # 推荐启动脚本
+├── requirements.txt
+├── Dockerfile              # Docker 镜像（配合前端 deploy/）
+├── docs/logo.png
+└── .env.example
+```
+
+**相关仓库**
+
+| 仓库 | 说明 |
+|------|------|
+| [flowgame](https://gitee.com/repeatedly_read/flowgame) | 前端 Monorepo（`@flowgame/core`、`@flowgame/vue`） |
+| **flowgame_python**（本仓库） | Python 执行器与数据 API |
+
+---
+
+## Docker 部署
+
+与前端 **并列克隆** 后，在前端仓库执行：
+
+```bash
+# 父目录示例
+/opt/flowgame/
+├── flowgame/
+└── flowgame_python/
+
+cd flowgame/deploy
+cp .env.example .env
+docker compose up -d --build
+```
+
+浏览器访问 **http://\<服务器IP\>:8009**，Nginx 将 `/api` 转发到本服务。详细步骤见前端仓库 **[Docker部署.md](https://gitee.com/repeatedly_read/flowgame/blob/master/Docker部署.md)**。
+
+---
+
+## 常见问题
+
+| 现象 | 处理 |
+|------|------|
+| 前端试运行失败 | 确认本服务已启动，端口与 Vite 代理一致（默认 **8008**） |
+| 保存 / 流程列表报错 | 启动 Redis，检查 `.env` 中 `REDIS_*` |
+| 知识库检索无结果 | 启动 Qdrant；确认 Collection 已入库且 Embedding 可用 |
+| Embedding 初始化慢 | 生产环境建议配置 `EMBEDDING_API_URL`，避免容器内下载大模型 |
+| 端口不一致 | 统一使用 `FLOWGAME_PORT=8008`，与前端代理、Docker Compose 保持一致 |
+
+---
+
+## 许可
+
+MIT（如仓库根目录有 LICENSE 则以 LICENSE 为准）。
