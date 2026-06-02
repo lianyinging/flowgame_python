@@ -9,4 +9,14 @@ __pycache__/
 dist/
 build/
 model/
-/.idea/vcs.xml
+
+# 本地文档 / IDE / 工具（不提交）
+npm发布流程.md
+开发日志.md
+开源流程.md
+本地安装测试.md
+.cursor/
+.idea/
+.vite/
+.vscode/
+*.tgz
