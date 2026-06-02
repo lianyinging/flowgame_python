@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license" /></a>
 </p>
 
 [简体中文](./README.md) | English
@@ -188,4 +188,4 @@ See frontend **[Docker部署.md](https://github.com/lianyinging/flowgame/blob/ma
 
 ## License
 
-MIT (see LICENSE in repo root if present).
+Apache License 2.0 (see [LICENSE](LICENSE) in repo root).

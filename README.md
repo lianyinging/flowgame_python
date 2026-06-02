@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
-  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
+  <a href="#许可"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license" /></a>
 </p>
 
 简体中文 | [English](./README.en-US.md)
@@ -246,4 +246,4 @@ docker compose up -d --build
 
 ## 许可
 
-MIT（如仓库根目录有 LICENSE 则以 LICENSE 为准）。
+Apache License 2.0（详见仓库根目录 [LICENSE](LICENSE)）。
