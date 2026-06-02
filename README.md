@@ -8,10 +8,10 @@
   </a>
 </p>
 
-<p style="text-align: center">
+<p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
-  <a href="#许可"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
 </p>
 
 简体中文 | [English](./README.en-US.md)
