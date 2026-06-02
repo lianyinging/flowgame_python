@@ -1,4 +1,4 @@
-<p style="text-align: center">
+<p align="center">
   <a href="https://flowgame.mgdeep.com" target="_blank">
     <img
       src="https://image.cscmgg.com/wechatMiniprogramImages/adminImage/bannerImage/20260601/blstxodlnxg66p.png"
