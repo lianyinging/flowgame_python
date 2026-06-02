@@ -1,10 +1,14 @@
-<div align="center">
+<p style="text-align: center">
+  <a href="https://flowgame.mgdeep.com" target="_blank">
+    <img
+      src="https://image.cscmgg.com/wechatMiniprogramImages/adminImage/bannerImage/20260601/blstxodlnxg66p.png"
+      alt="FlowGame logo"
+      width="300"
+    />
+  </a>
+</p>
 
-![FlowGame](./logo.png)
-
-</div>
-
-<p align="center">
+<p style="text-align: center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
@@ -88,12 +92,17 @@ uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8008 --reload
 1. Start this service on port **8008**
 2. In [flowgame](https://github.com/lianyinging/flowgame) or your Vue app, proxy `/api` to the backend:
 
-```ts
-server: {
-  proxy: {
-    '/api': { target: 'http://127.0.0.1:8008', changeOrigin: true }
-  }
-}
+```typescript
+// vite.config.ts
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8008', changeOrigin: true },
+    },
+  },
+})
 ```
 
 3. Call `configureFlowGameClient({ baseURL: '/api' })` on the frontend.
@@ -174,6 +183,8 @@ See frontend **[Docker部署.md](https://github.com/lianyinging/flowgame/blob/ma
 | Slow Embedding init | Use `EMBEDDING_API_URL` in production |
 
 ---
+
+<a id="license"></a>
 
 ## License
 

@@ -1,10 +1,14 @@
-<div align="center">
+<p style="text-align: center">
+  <a href="https://flowgame.mgdeep.com" target="_blank">
+    <img
+      src="https://image.cscmgg.com/wechatMiniprogramImages/adminImage/bannerImage/20260601/blstxodlnxg66p.png"
+      alt="FlowGame logo"
+      width="300"
+    />
+  </a>
+</p>
 
-![FlowGame](./logo.png)
-
-</div>
-
-<p align="center">
+<p style="text-align: center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="python" /></a>
   <a href="https://fastapi.tiangolo.com/"><img src="https://img.shields.io/badge/FastAPI-0.100%2B-009688" alt="FastAPI" /></a>
   <a href="#许可"><img src="https://img.shields.io/badge/license-MIT-green" alt="license" /></a>
@@ -88,13 +92,17 @@ uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8008 --reload
 1. 启动本服务（端口 **8008**）
 2. 在前端 [flowgame](https://github.com/lianyinging/flowgame) 或自有 Vue 项目中，Vite 将 `/api` 代理到后端：
 
-```ts
+```typescript
 // vite.config.ts
-server: {
-  proxy: {
-    '/api': { target: 'http://127.0.0.1:8008', changeOrigin: true }
-  }
-}
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:8008', changeOrigin: true },
+    },
+  },
+})
 ```
 
 3. 前端 `configureFlowGameClient({ baseURL: '/api' })` 后即可保存流程、试运行、管理知识库。
@@ -117,8 +125,10 @@ server: {
 
 **外部调用示例**（按 `methodKey` 执行已保存流程）：
 
-```json
+```http
 POST /api/v1/flowGame/execute
+Content-Type: application/json
+
 {
   "methodKey": "my_flow",
   "variables": { "question": "你好" }
@@ -231,6 +241,8 @@ docker compose up -d --build
 | 端口不一致 | 统一使用 `FLOWGAME_PORT=8008`，与前端代理、Docker Compose 保持一致 |
 
 ---
+
+<a id="许可"></a>
 
 ## 许可
 
