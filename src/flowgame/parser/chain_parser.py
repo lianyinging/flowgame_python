@@ -9,6 +9,7 @@ from src.flowgame.chain.condition import JavascriptStringCondition
 from src.flowgame.chain.edge import ChainEdge
 from src.flowgame.chain.nodes import (
     CodeNode,
+    DatabaseNode,
     EndNode,
     HttpNode,
     KnowledgeNode,
@@ -28,6 +29,7 @@ from src.flowgame.parser.base_parser import (
     get_data,
     get_http_node_default_output_defs,
     get_llmapi_node_default_output_defs,
+    get_database_node_default_output_defs,
     get_memory_read_default_output_defs,
     get_memory_write_default_output_defs,
     parse_parameters,
@@ -64,6 +66,7 @@ class ChainParser:
             "llmapiNode": self._parse_llmapi,
             "memoryWriteNode": self._parse_memory_write,
             "memoryReadNode": self._parse_memory_read,
+            "databaseNode": self._parse_database,
         }
 
     def parse(self, runtime: TinyflowRuntime) -> Chain:
@@ -275,6 +278,17 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_memory_read_default_output_defs())
+        return node
+
+    def _parse_database(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = DatabaseNode()
+        data = get_data(node_object)
+        node.db_type = (data.get("dbType") or "mysql").strip().lower()
+        node.sql_template = data.get("sqlTemplate")
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_database_node_default_output_defs())
         return node
 
     def _parse_knowledge(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

@@ -459,9 +459,7 @@ class CodeNode(BaseNode):
         if not self.code or not str(self.code).strip():
             raise ValueError("Code is null or blank.")
         params = chain.get_parameter_values(self)
-        merged = dict(chain.memory)
-        merged.update(params)
-        result = eval_js(self.code, merged)
+        result = eval_js(self.code, chain.memory, extra=params)
         return _normalize_code_result(result, self.output_defs)
 
 
@@ -821,6 +819,71 @@ class MemoryReadNode(BaseNode):
             "count": len(items),
             "errorMessage": "",
         }
+
+
+class DatabaseNode(BaseNode):
+    """数据库：入参渲染 MyBatis 风格 SQL 模板，默认 MySQL，结果 JSON 数组输出。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.db_type: str = "mysql"
+        self.sql_template: Optional[str] = None
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.chain.mybatis_sql import json_safe_value, render_mybatis_sql
+        from src.flowgame.mysql.client import mysql_utils
+        from src.flowgame.settings import get_flowgame_settings
+
+        result: Dict[str, Any] = {
+            "success": False,
+            "data": [],
+            "rowCount": 0,
+            "errorMessage": "",
+        }
+        template = (self.sql_template or "").strip()
+        if not template:
+            result["errorMessage"] = "未配置 SQL 模板"
+            return result
+
+        db_type = (self.db_type or "mysql").strip().lower()
+        if db_type != "mysql":
+            result["errorMessage"] = f"暂不支持的数据库类型: {db_type}"
+            return result
+
+        cfg = get_flowgame_settings()
+        if not (cfg.mysql_host or "").strip():
+            result["errorMessage"] = "MySQL 未配置（请设置 MYSQL_HOST 等环境变量）"
+            return result
+
+        params = chain.get_parameter_values(self)
+        try:
+            sql, bind_values = render_mybatis_sql(template, params)
+        except Exception as exc:
+            result["errorMessage"] = f"SQL 模板解析失败: {exc}"
+            return result
+
+        sql_text = sql.strip()
+        if not sql_text:
+            result["errorMessage"] = "渲染后的 SQL 为空"
+            return result
+
+        try:
+            with mysql_utils.connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql_text, bind_values)
+                    if sql_text.lstrip().upper().startswith("SELECT"):
+                        rows = cursor.fetchall() or []
+                        data = [json_safe_value(dict(row)) for row in rows]
+                        result["success"] = True
+                        result["data"] = data
+                        result["rowCount"] = len(data)
+                    else:
+                        result["success"] = True
+                        result["data"] = []
+                        result["rowCount"] = int(cursor.rowcount or 0)
+        except Exception as exc:
+            result["errorMessage"] = str(exc)
+        return result
 
 
 class SearchEngineNode(BaseNode):

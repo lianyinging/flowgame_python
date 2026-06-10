@@ -24,6 +24,12 @@ class FlowgameSettings:
     redis_socket_connect_timeout: int = 5
     redis_socket_timeout: int = 5
     redis_max_connections: int = 50
+    mysql_host: str = ""
+    mysql_port: int = 3306
+    mysql_user: str = ""
+    mysql_password: Optional[str] = None
+    mysql_database: str = ""
+    mysql_charset: str = "utf8mb4"
 
 
 def _env_int(name: str, default: int) -> int:
@@ -49,4 +55,10 @@ def get_flowgame_settings() -> FlowgameSettings:
         redis_socket_connect_timeout=_env_int("REDIS_CONNECT_TIMEOUT", 5),
         redis_socket_timeout=_env_int("REDIS_SOCKET_TIMEOUT", 5),
         redis_max_connections=_env_int("REDIS_MAX_CONNECTIONS", 50),
+        mysql_host=os.getenv("MYSQL_HOST", "").strip(),
+        mysql_port=_env_int("MYSQL_PORT", 3306),
+        mysql_user=os.getenv("MYSQL_USER", "").strip(),
+        mysql_password=os.getenv("MYSQL_PASSWORD") or None,
+        mysql_database=os.getenv("MYSQL_DATABASE", "").strip(),
+        mysql_charset=os.getenv("MYSQL_CHARSET", "utf8mb4").strip() or "utf8mb4",
     )

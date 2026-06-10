@@ -187,6 +187,42 @@ def get_memory_read_default_output_defs() -> List[Dict[str, Any]]:
     return MEMORY_READ_DEFAULT_OUTPUT_DEFS
 
 
+DATABASE_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "data",
+        "nameDisabled": True,
+        "dataType": "Array",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "rowCount",
+        "nameDisabled": True,
+        "dataType": "Number",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "success",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "errorMessage",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
+def get_database_node_default_output_defs() -> List[Dict[str, Any]]:
+    return DATABASE_NODE_DEFAULT_OUTPUT_DEFS
+
+
 def get_end_node_output_defs_from_workflow(workflow_json: str) -> List[Dict[str, Any]]:
     """从工作流 JSON 读取结束节点的 outputDefs。"""
     import json

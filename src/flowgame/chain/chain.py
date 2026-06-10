@@ -169,7 +169,24 @@ class Chain(ChainNode):
                     f"{type(node).__name__} Missing required parameter: {parameter.name}"
                 )
 
-            if parameter.data_type == DataType.STRING or parameter.data_type is None:
+            if isinstance(value, (list, dict)):
+                variables[parameter.name or ""] = value
+                continue
+
+            if parameter.data_type in (
+                DataType.ARRAY_OBJECT,
+                DataType.ARRAY_STRING,
+                DataType.ARRAY_NUMBER,
+                DataType.ARRAY_BOOLEAN,
+                DataType.ARRAY_FILE,
+            ) or (
+                parameter.data_type in (DataType.OBJECT, None)
+                and isinstance(value, (list, dict))
+            ):
+                pass
+            elif parameter.data_type == DataType.STRING or (
+                parameter.data_type is None and not isinstance(value, (list, dict))
+            ):
                 value = _coerce_string_value(value)
             elif value is None or isinstance(value, str):
                 text = "" if value is None else str(value).strip()

@@ -42,7 +42,10 @@ class DataType(str, Enum):
     def of_value(cls, value: str | None) -> "DataType | None":
         if not value:
             return None
+        normalized = value.strip()
+        if normalized.lower() == "array":
+            return cls.ARRAY_OBJECT
         for item in cls:
-            if item.value.lower() == value.lower():
+            if item.value.lower() == normalized.lower():
                 return item
         return None
