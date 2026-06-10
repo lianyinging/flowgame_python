@@ -155,6 +155,8 @@ Content-Type: application/json
 | `FLOWGAME_HOST` | `0.0.0.0` | 监听地址 |
 | `FLOWGAME_PORT` | `8008` | 服务端口 |
 | `REDIS_HOST` / `REDIS_PORT` | `127.0.0.1` / `6379` | 流程存储 |
+| `FLOWGAME_REDIS_KEY_PREFIX` | （空，默认 `flow_game:`） | 多项目共用 Redis 时的键命名空间 |
+| `FLOWGAME_QDRANT_KB_PREFIX` | （空，默认 `flowgame_`） | 多项目共用 Qdrant 时的 Collection 前缀 |
 | `QDRANT_HOST` / `QDRANT_PORT` | `127.0.0.1` / `6333` | 向量库 |
 | `EMBEDDING_API_URL` | 空 | 外部 Embedding HTTP 服务 |
 | `DEEPSEEK_*` | — | 可选；历史 Tinyflow `llmNode` 服务端环境变量 |

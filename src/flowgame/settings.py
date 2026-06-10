@@ -11,6 +11,8 @@ from typing import Optional
 
 @dataclass(frozen=True)
 class FlowgameSettings:
+    redis_key_prefix: str = "flow_game:"
+    qdrant_kb_prefix: str = "flowgame_"
     qdrant_host: str = "127.0.0.1"
     qdrant_port: int = 6333
     qdrant_timeout: int = 30
@@ -39,9 +41,20 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def clear_flowgame_settings_cache() -> None:
+    from src.flowgame.key_prefix import clear_key_prefix_cache
+
+    get_flowgame_settings.cache_clear()
+    clear_key_prefix_cache()
+
+
 @lru_cache(maxsize=1)
 def get_flowgame_settings() -> FlowgameSettings:
+    from src.flowgame.key_prefix import get_qdrant_kb_prefix, get_redis_key_prefix
+
     return FlowgameSettings(
+        redis_key_prefix=get_redis_key_prefix(),
+        qdrant_kb_prefix=get_qdrant_kb_prefix(),
         qdrant_host=os.getenv("QDRANT_HOST", "127.0.0.1").strip(),
         qdrant_port=_env_int("QDRANT_PORT", 6333),
         qdrant_timeout=_env_int("QDRANT_TIMEOUT", 30),

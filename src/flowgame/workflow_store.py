@@ -4,8 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-FLOW_LIST_REDIS_PREFIX = "flow_game:flow_list:"
-LEGACY_FLOW_LIST_REDIS_PREFIX = "wx_base:ai:flow_list:"
+from src.flowgame.key_prefix import get_flow_list_redis_prefix
 
 
 class FlowGameWorkflowStoreError(Exception):
@@ -13,26 +12,22 @@ class FlowGameWorkflowStoreError(Exception):
 
 
 def build_flow_redis_key(method_key: str) -> str:
-    return f"{FLOW_LIST_REDIS_PREFIX}{method_key.strip()}"
+    return f"{get_flow_list_redis_prefix()}{method_key.strip()}"
 
 
 def _flow_redis_keys_for_load(method_key: str) -> List[str]:
+    prefix = get_flow_list_redis_prefix()
     key = (method_key or "").strip()
     if not key:
         return []
     keys: List[str] = []
-    if key.startswith(FLOW_LIST_REDIS_PREFIX) or key.startswith(LEGACY_FLOW_LIST_REDIS_PREFIX):
+    if key.startswith(prefix):
         keys.append(key)
-        if key.startswith(FLOW_LIST_REDIS_PREFIX):
-            suffix = key[len(FLOW_LIST_REDIS_PREFIX) :]
-        else:
-            suffix = key[len(LEGACY_FLOW_LIST_REDIS_PREFIX) :]
-        name = suffix.strip()
+        name = key[len(prefix) :].strip()
     else:
         name = key
     if name:
-        keys.append(f"{FLOW_LIST_REDIS_PREFIX}{name}")
-        keys.append(f"{LEGACY_FLOW_LIST_REDIS_PREFIX}{name}")
+        keys.append(f"{prefix}{name}")
     return list(dict.fromkeys(k for k in keys if k))
 
 

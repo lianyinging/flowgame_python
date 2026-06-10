@@ -9,8 +9,8 @@ from qdrant_client.http import models as qmodels
 
 from src.flowgame.qdrant import embedding as embedding_module
 from src.flowgame.qdrant.client import ensure_qdrant_available
+from src.flowgame.key_prefix import get_qdrant_kb_prefix
 from src.flowgame.qdrant.kb_collection import (
-    FLOWGAME_KB_PREFIX,
     KbCollectionNameError,
     filter_flowgame_kb_collections,
     list_kb_bases_from_collections,
@@ -228,16 +228,16 @@ def list_kb_bases() -> Dict[str, Any]:
     return {
         "bases": bases,
         "total": len(bases),
-        "prefix": FLOWGAME_KB_PREFIX,
+        "prefix": get_qdrant_kb_prefix(),
         "flowgameCollectionCount": len(flowgame_items),
     }
 
 
 def list_flowgame_kb_collections() -> Dict[str, Any]:
-    """列出所有 flowgame_ 前缀的 Q&A/文档物理 Collection。"""
+    """列出当前配置前缀下的 Q&A/文档物理 Collection。"""
     raw = list_collections()
     items = filter_flowgame_kb_collections(raw.get("collections") or [])
-    return {"collections": items, "total": len(items), "prefix": FLOWGAME_KB_PREFIX}
+    return {"collections": items, "total": len(items), "prefix": get_qdrant_kb_prefix()}
 
 
 def create_collection(body: CollectionCreateBody) -> Dict[str, Any]:

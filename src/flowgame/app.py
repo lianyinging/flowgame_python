@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.flowgame.constants import API_PREFIX
+from src.flowgame.prefix_middleware import FlowgameKeyPrefixMiddleware
 from src.flowgame.registry import register_routes
 
 app = FastAPI(
@@ -43,6 +44,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(FlowgameKeyPrefixMiddleware)
 
 register_routes(app)
 

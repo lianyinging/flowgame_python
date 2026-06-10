@@ -50,7 +50,9 @@ class FlowgameRedisClient:
                 from src.config.config import init_redis_settings_from_nacos
 
                 init_redis_settings_from_nacos()
-                get_flowgame_settings.cache_clear()
+                from src.flowgame.settings import clear_flowgame_settings_cache
+
+                clear_flowgame_settings_cache()
                 cfg = get_flowgame_settings()
         except Exception:
             pass

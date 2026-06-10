@@ -1,4 +1,4 @@
-"""知识库文档索引（Redis，键前缀 flow_game）。"""
+"""知识库文档索引（Redis，键前缀与 FLOWGAME_REDIS_KEY_PREFIX 一致）。"""
 from __future__ import annotations
 
 import json
@@ -6,18 +6,17 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from src.flowgame.key_prefix import get_kb_doc_points_redis_prefix, get_kb_docs_redis_prefix
 
-FLOW_GAME_KB_DOCS_PREFIX = "flow_game:kb:docs:"
-FLOW_GAME_KB_DOC_POINTS_PREFIX = "flow_game:kb:doc_points:"
+logger = logging.getLogger(__name__)
 
 
 def build_kb_docs_key(collection_name: str) -> str:
-    return f"{FLOW_GAME_KB_DOCS_PREFIX}{collection_name.strip()}"
+    return f"{get_kb_docs_redis_prefix()}{collection_name.strip()}"
 
 
 def build_kb_doc_points_key(collection_name: str, doc_id: str) -> str:
-    return f"{FLOW_GAME_KB_DOC_POINTS_PREFIX}{collection_name.strip()}:{doc_id.strip()}"
+    return f"{get_kb_doc_points_redis_prefix()}{collection_name.strip()}:{doc_id.strip()}"
 
 
 def _now_iso() -> str:

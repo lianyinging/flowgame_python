@@ -1,11 +1,11 @@
-"""对话记忆 Redis 键：flow_game:flow_context:{md5(上下文引用值)}"""
+"""对话记忆 Redis 键：{prefix}flow_context:{md5(上下文引用值)}"""
 from __future__ import annotations
 
 import hashlib
 import json
 from typing import Any, List, Optional
 
-CONTEXT_REDIS_KEY_PREFIX = "flow_game:flow_context:"
+from src.flowgame.key_prefix import get_flow_context_redis_prefix
 
 
 def coerce_context_key_text(raw: Any) -> str:
@@ -21,7 +21,7 @@ def build_context_redis_key(raw_key: Any) -> str:
     if not text:
         raise ValueError("记忆上下文键引用值为空，请配置 contextKey 引用（如 headers.Authorization）")
     digest = hashlib.md5(text.encode("utf-8")).hexdigest()
-    return f"{CONTEXT_REDIS_KEY_PREFIX}{digest}"
+    return f"{get_flow_context_redis_prefix()}{digest}"
 
 
 def serialize_list_item(value: Any) -> str:
