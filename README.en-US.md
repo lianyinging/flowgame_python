@@ -60,15 +60,20 @@ python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
+cp .env.dev.example .env.dev   # optional: dev/test
 ```
 
 ### 2. Start the server
 
 ```bash
+# prod/default (.env)
 python run.py
+
+# dev/test (.env.dev, default port 8009)
+APP_ENV=dev python run.py
 ```
 
-Default: **http://127.0.0.1:8008** (`FLOWGAME_PORT=8008` in `.env`).
+Default: **http://127.0.0.1:8008** (`FLOWGAME_PORT=8008` in `.env`); `APP_ENV=dev` loads `.env.dev`.
 
 Or with uvicorn:
 
@@ -127,7 +132,7 @@ export default defineConfig({
 
 ## Environment Variables
 
-See [.env.example](.env.example). Key settings: `FLOWGAME_PORT`, `REDIS_*`, `QDRANT_*`, `EMBEDDING_API_URL`.
+See [.env.example](.env.example) (prod) and [.env.dev.example](.env.dev.example) (dev/test). Key settings: `FLOWGAME_PORT`, `REDIS_*`, `QDRANT_*`, `EMBEDDING_API_URL`.
 
 **llmapiNode** credentials are configured in workflow JSON node parameters, not typically in `.env`.
 
@@ -150,7 +155,8 @@ flowgame_python/
 ├── src/flowgame/     # FastAPI app, parser, chain nodes, redis, qdrant
 ├── run.py
 ├── requirements.txt
-├── Dockerfile
+├── Dockerfile              # prod image (APP_ENV=prod)
+├── Dockerfile_test         # test image (APP_ENV=dev)
 └── docs/logo.png
 ```
 
@@ -162,6 +168,18 @@ flowgame_python/
 ---
 
 ## Docker Deployment
+
+**Build this repo only:**
+
+```bash
+# prod (before build: cp .env.example .env)
+docker build -f Dockerfile -t flowgame .
+docker run -p 8008:8008 flowgame
+
+# test (before build: cp .env.dev.example .env.dev)
+docker build -f Dockerfile_test -t flowgame-test .
+docker run -p 8009:8009 flowgame-test
+```
 
 Clone alongside the frontend repo, then from `flowgame/deploy`:
 

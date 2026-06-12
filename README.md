@@ -59,16 +59,21 @@ cd flowgame_python
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-cp .env.example .env               # 按需修改端口、Redis、Qdrant 等
+cp .env.example .env               # 生产/默认环境
+cp .env.dev.example .env.dev       # 可选：开发/测试环境
 ```
 
 ### 2. 启动服务
 
 ```bash
+# 生产/默认（加载 .env）
 python run.py
+
+# 开发/测试（加载 .env.dev，默认端口 8009）
+APP_ENV=dev python run.py
 ```
 
-默认监听 **http://127.0.0.1:8008**（由 `.env` 中 `FLOWGAME_PORT=8008` 控制）。
+默认监听 **http://127.0.0.1:8008**（由 `.env` 中 `FLOWGAME_PORT=8008` 控制）；`APP_ENV=dev` 时加载 `.env.dev`。
 
 或使用 uvicorn：
 
@@ -148,7 +153,7 @@ Content-Type: application/json
 
 ## 环境变量
 
-见 [.env.example](.env.example)，常用项：
+见 [.env.example](.env.example)（生产）与 [.env.dev.example](.env.dev.example)（开发/测试），常用项：
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
@@ -199,9 +204,11 @@ flowgame_python/
 │   └── memory_context.py   # 记忆读写上下文
 ├── run.py                  # 推荐启动脚本
 ├── requirements.txt
-├── Dockerfile              # Docker 镜像（配合前端 deploy/）
+├── Dockerfile              # 生产镜像（APP_ENV=prod，加载 .env）
+├── Dockerfile_test         # 测试镜像（APP_ENV=dev，加载 .env.dev）
 ├── logo.png
-└── .env.example
+├── .env.example
+└── .env.dev.example
 ```
 
 **相关仓库**
@@ -214,6 +221,18 @@ flowgame_python/
 ---
 
 ## Docker 部署
+
+**单独构建本仓库镜像：**
+
+```bash
+# 生产（构建前：cp .env.example .env 并填写）
+docker build -f Dockerfile -t flowgame .
+docker run -p 8008:8008 flowgame
+
+# 测试（构建前：cp .env.dev.example .env.dev 并填写）
+docker build -f Dockerfile_test -t flowgame-test .
+docker run -p 8009:8009 flowgame-test
+```
 
 与前端 **并列克隆** 后，在前端仓库执行：
 

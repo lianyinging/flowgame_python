@@ -4,7 +4,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app \
-    APP_ENV=prod
+    APP_ENV=dev
 
 WORKDIR /app
 
@@ -18,11 +18,11 @@ RUN pip install --upgrade pip \
 
 COPY run.py .
 COPY src ./src
-COPY .env ./.env
+COPY .env.dev ./.env.dev
 
-EXPOSE 8008
+EXPOSE 8009
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=30s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/health')"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/health')"
 
-CMD ["uvicorn", "src.flowgame.app:app", "--host", "0.0.0.0", "--port", "8008"]
+CMD ["uvicorn", "src.flowgame.app:app", "--host", "0.0.0.0", "--port", "8009"]

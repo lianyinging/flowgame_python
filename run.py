@@ -10,12 +10,9 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-try:
-    from dotenv import load_dotenv
+from src.flowgame.settings import load_flowgame_dotenv
 
-    load_dotenv(ROOT / ".env")
-except ImportError:
-    pass
+load_flowgame_dotenv()
 
 from src.flowgame.app import start_server
 

@@ -14,15 +14,10 @@ FlowGame 独立 FastAPI 应用入口。
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
-try:
-    from dotenv import load_dotenv
+from src.flowgame.settings import load_flowgame_dotenv
 
-    _root = Path(__file__).resolve().parents[2]
-    load_dotenv(_root / ".env")
-except ImportError:
-    pass
+load_flowgame_dotenv()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

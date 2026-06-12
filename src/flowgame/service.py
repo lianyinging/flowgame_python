@@ -123,7 +123,10 @@ class FlowGameExecuteService:
 
     @staticmethod
     def _stream_line(event: str, data: Dict[str, Any]) -> str:
-        return json.dumps({"event": event, "data": data}, ensure_ascii=False) + "\n"
+        from src.flowgame.chain.js_engine import ensure_json_serializable
+
+        safe_data = ensure_json_serializable(data)
+        return json.dumps({"event": event, "data": safe_data}, ensure_ascii=False) + "\n"
 
     def execute_workflow(
         self,

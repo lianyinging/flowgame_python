@@ -346,7 +346,11 @@ class Chain(ChainNode):
 
         duration_ms = int((time.perf_counter() - started) * 1000)
         self.execute_result = execute_result
-        output_snapshot = dict(execute_result) if execute_result else None
+        from src.flowgame.chain.js_engine import ensure_json_serializable
+
+        output_snapshot = (
+            ensure_json_serializable(dict(execute_result)) if execute_result else None
+        )
         self._record_node_execution(
             current,
             "success",

@@ -34,6 +34,25 @@ def eval_js_bool(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None
     return result_str not in ("0", "false", "")
 
 
+def ensure_json_serializable(value: Any) -> Any:
+    """将 JS 引擎产物（如 JSObject）等转为可 json.dumps 的 Python 值。"""
+    try:
+        json.dumps(value)
+        return value
+    except TypeError:
+        pass
+
+    if isinstance(value, dict):
+        return {str(k): ensure_json_serializable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [ensure_json_serializable(item) for item in value]
+
+    type_name = type(value).__name__
+    if type_name in {"JSObject", "JSFunction", "JSSymbol"}:
+        return None
+    return str(value)
+
+
 def _eval_with_mini_racer(code: str, bindings: Dict[str, Any]) -> Any:
     from py_mini_racer import py_mini_racer
 
@@ -41,7 +60,15 @@ def _eval_with_mini_racer(code: str, bindings: Dict[str, Any]) -> Any:
     ctx.eval("var _chain = null; var _edge = null; var _context = null;")
     for key, value in bindings.items():
         ctx.eval(f"var {key} = {json.dumps(value, ensure_ascii=False, default=str)};")
-    return ctx.eval(code)
+    # eval() 对 object/array 会返回 JSObject，流式进度 json.dumps 会失败；统一 JSON 往返。
+    code_literal = json.dumps(code, ensure_ascii=False)
+    ctx.eval(f"var __last_eval_result__ = eval({code_literal});")
+    json_str = ctx.eval(
+        "JSON.stringify(__last_eval_result__ === undefined ? null : __last_eval_result__)"
+    )
+    if json_str is None:
+        return None
+    return json.loads(json_str)
 
 
 def _eval_with_node(code: str, bindings: Dict[str, Any]) -> Any:
@@ -101,7 +128,7 @@ def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = No
 
     if _MINI_RACER_USABLE is not False:
         try:
-            result = _eval_with_mini_racer(stripped, bindings)
+            result = ensure_json_serializable(_eval_with_mini_racer(stripped, bindings))
             _MINI_RACER_USABLE = True
             return result
         except ImportError as exc:
@@ -116,7 +143,7 @@ def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = No
 
     if shutil.which("node"):
         try:
-            return _eval_with_node(stripped, bindings)
+            return ensure_json_serializable(_eval_with_node(stripped, bindings))
         except Exception as exc:
             logger.warning("Node.js 执行动态代码失败: %s", exc)
 
