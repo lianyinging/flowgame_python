@@ -223,6 +223,119 @@ def get_database_node_default_output_defs() -> List[Dict[str, Any]]:
     return DATABASE_NODE_DEFAULT_OUTPUT_DEFS
 
 
+FORK_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "forked",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "branches",
+        "nameDisabled": True,
+        "dataType": "Number",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+JOIN_ALL_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "joined",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "mode",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "branchCount",
+        "nameDisabled": True,
+        "dataType": "Number",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "results",
+        "nameDisabled": True,
+        "dataType": "Object",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "errorMessage",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+JOIN_ANY_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "joined",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "mode",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "branchCount",
+        "nameDisabled": True,
+        "dataType": "Number",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "winnerNodeId",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "results",
+        "nameDisabled": True,
+        "dataType": "Object",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "errorMessage",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
+def get_fork_node_default_output_defs() -> List[Dict[str, Any]]:
+    return FORK_NODE_DEFAULT_OUTPUT_DEFS
+
+
+def get_join_all_node_default_output_defs() -> List[Dict[str, Any]]:
+    return JOIN_ALL_NODE_DEFAULT_OUTPUT_DEFS
+
+
+def get_join_any_node_default_output_defs() -> List[Dict[str, Any]]:
+    return JOIN_ANY_NODE_DEFAULT_OUTPUT_DEFS
+
+
 def get_end_node_output_defs_from_workflow(workflow_json: str) -> List[Dict[str, Any]]:
     """从工作流 JSON 读取结束节点的 outputDefs。"""
     import json

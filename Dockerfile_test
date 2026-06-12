@@ -20,6 +20,9 @@ COPY run.py .
 COPY src ./src
 COPY .env.dev ./.env.dev
 
+# 执行日志默认目录（与 FLOWGAME_EXECUTION_LOG_PATH 容器内路径对应，compose 可挂载卷）
+RUN mkdir -p /var/log/flowgame
+
 EXPOSE 8009
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=30s \

@@ -11,7 +11,10 @@ from src.flowgame.chain.nodes import (
     CodeNode,
     DatabaseNode,
     EndNode,
+    ForkNode,
     HttpNode,
+    JoinAllNode,
+    JoinAnyNode,
     KnowledgeNode,
     KnowledgeNodePlus,
     LlmApiNode,
@@ -30,6 +33,9 @@ from src.flowgame.parser.base_parser import (
     get_http_node_default_output_defs,
     get_llmapi_node_default_output_defs,
     get_database_node_default_output_defs,
+    get_fork_node_default_output_defs,
+    get_join_all_node_default_output_defs,
+    get_join_any_node_default_output_defs,
     get_memory_read_default_output_defs,
     get_memory_write_default_output_defs,
     parse_parameters,
@@ -67,6 +73,9 @@ class ChainParser:
             "memoryWriteNode": self._parse_memory_write,
             "memoryReadNode": self._parse_memory_read,
             "databaseNode": self._parse_database,
+            "forkNode": self._parse_fork,
+            "joinAllNode": self._parse_join_all,
+            "joinAnyNode": self._parse_join_any,
         }
 
     def parse(self, runtime: TinyflowRuntime) -> Chain:
@@ -137,6 +146,7 @@ class ChainParser:
             if edge:
                 chain.add_edge(edge)
 
+        chain.init_join_barriers()
         return chain
 
     def _parse_node(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
@@ -289,6 +299,30 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_database_node_default_output_defs())
+        return node
+
+    def _parse_fork(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = ForkNode()
+        data = get_data(node_object)
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_fork_node_default_output_defs())
+        return node
+
+    def _parse_join_all(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = JoinAllNode()
+        data = get_data(node_object)
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_join_all_node_default_output_defs())
+        return node
+
+    def _parse_join_any(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = JoinAnyNode()
+        data = get_data(node_object)
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_join_any_node_default_output_defs())
         return node
 
     def _parse_knowledge(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

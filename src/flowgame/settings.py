@@ -11,23 +11,24 @@ from typing import Optional
 
 
 def load_flowgame_dotenv() -> None:
-    """按 APP_ENV 加载环境文件：prod → .env，dev → .env.dev，其他 → .env.<APP_ENV>。"""
+    """加载环境文件：先 .env，再按 APP_ENV 叠加 .env.<APP_ENV>（后者覆盖同名项）。"""
     try:
         from dotenv import load_dotenv
     except ImportError:
         return
 
     root = Path(__file__).resolve().parents[2]
+    base_env = root / ".env"
+    if base_env.exists():
+        load_dotenv(base_env)
+
     app_env = os.environ.get("APP_ENV", "").strip().lower()
     if app_env in ("prod", "production"):
-        load_dotenv(root / ".env")
         return
     if app_env:
         env_file = root / f".env.{app_env}"
         if env_file.exists():
-            load_dotenv(env_file)
-            return
-    load_dotenv(root / ".env")
+            load_dotenv(env_file, override=True)
 
 
 @dataclass(frozen=True)

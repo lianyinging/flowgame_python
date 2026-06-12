@@ -12,7 +12,13 @@ from src.flowgame.chain.edge import ChainEdge
 from src.flowgame.chain.enums import ChainStatus, DataType, RefType
 from src.flowgame.chain.exceptions import ChainException, ChainSuspendException
 from src.flowgame.chain.parameter import Parameter
+from src.flowgame.chain.join_barrier import (
+    FORK_NODE_TYPE,
+    JOIN_NODE_TYPES,
+    init_join_barriers,
+)
 from src.flowgame.chain.template import format_template
+from src.flowgame.execution_logging import log_node_event
 
 
 @dataclass
@@ -65,6 +71,8 @@ class Chain(ChainNode):
         self.execution_records: List[Dict[str, Any]] = []
         self.progress_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None
         self._executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="flowgame-chain")
+        self._join_barriers: Dict[str, Any] = {}
+        self._join_source_id: str = ""
 
     def _emit_progress(self, event: str, data: Dict[str, Any]) -> None:
         if self.progress_callback:
@@ -281,10 +289,17 @@ class Chain(ChainNode):
                 return node
         return None
 
-    def _do_execute_nodes(self, execute_nodes: List[_ExecuteNode]) -> None:
+    def init_join_barriers(self) -> None:
+        init_join_barriers(self)
+
+    def _do_execute_nodes(
+        self, execute_nodes: List[_ExecuteNode], force_parallel: bool = False
+    ) -> None:
+        # 同一父节点分出多条出边时默认并行，否则汇聚（任一）会按「先跑完的分支」而非「最快分支」决胜
+        parallel = force_parallel or len(execute_nodes) > 1
         futures = []
         for item in execute_nodes:
-            if item.current_node.async_exec:
+            if parallel or item.current_node.async_exec:
                 futures.append(self._executor.submit(self._do_execute_node, item))
             else:
                 self._do_execute_node(item)
@@ -313,6 +328,16 @@ class Chain(ChainNode):
             record["error"] = error
         self.execution_records.append(record)
         self._emit_progress("node_finished", dict(record))
+        log_node_event(
+            "node_finished",
+            node_id=node.id,
+            node_name=node.name,
+            node_type=node.node_type,
+            status=status,
+            duration_ms=duration_ms,
+            error=error,
+            output=output,
+        )
 
     def _do_execute_node(self, execute_node: _ExecuteNode) -> None:
         if self.status != ChainStatus.RUNNING:
@@ -330,8 +355,16 @@ class Chain(ChainNode):
                 "nodeType": current.node_type,
             },
         )
+        log_node_event(
+            "node_started",
+            node_id=current.id,
+            node_name=current.name,
+            node_type=current.node_type,
+        )
 
         started = time.perf_counter()
+        prev = execute_node.prev_node
+        self._join_source_id = prev.id if prev else ""
         try:
             execute_result = current.execute(self)
         except Exception as exc:
@@ -343,14 +376,39 @@ class Chain(ChainNode):
                 duration_ms=duration_ms,
             )
             raise
+        finally:
+            self._join_source_id = ""
 
         duration_ms = int((time.perf_counter() - started) * 1000)
-        self.execute_result = execute_result
         from src.flowgame.chain.js_engine import ensure_json_serializable
 
         output_snapshot = (
             ensure_json_serializable(dict(execute_result)) if execute_result else None
         )
+
+        if current.node_type in JOIN_NODE_TYPES:
+            if execute_result and execute_result.get("skipped"):
+                return
+            if not execute_result or not execute_result.get("joined"):
+                status = "error" if execute_result and execute_result.get("failed") else "waiting"
+                self._record_node_execution(
+                    current,
+                    status,
+                    output=output_snapshot,
+                    error=(
+                        str(execute_result.get("errorMessage") or "")
+                        if status == "error"
+                        else None
+                    ),
+                    duration_ms=duration_ms,
+                )
+                if status == "error" and execute_result:
+                    self.stop_error(
+                        str(execute_result.get("errorMessage") or "Join failed")
+                    )
+                return
+
+        self.execute_result = execute_result
         self._record_node_execution(
             current,
             "success",
@@ -376,4 +434,5 @@ class Chain(ChainNode):
             if next_node:
                 next_execute_nodes.append(_ExecuteNode(next_node, current, edge.id or ""))
         if next_execute_nodes:
-            self._do_execute_nodes(next_execute_nodes)
+            force_parallel = current.node_type == FORK_NODE_TYPE
+            self._do_execute_nodes(next_execute_nodes, force_parallel=force_parallel)

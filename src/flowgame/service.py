@@ -21,6 +21,7 @@ from src.flowgame.parser.base_parser import (
 from src.flowgame.tinyflow import Tinyflow
 from src.flowgame.tinyflow_config import TinyflowRuntime
 from src.flowgame.workflow_start_api_rules import validate_start_api_workflow
+from src.flowgame.execution_logging import log_workflow_event
 from src.flowgame.workflow_store import (
     FlowGameWorkflowStoreError,
     load_workflow_json_by_method_key,
@@ -149,6 +150,20 @@ class FlowGameExecuteService:
             raise FlowGameExecuteError(str(exc)) from exc
 
         params = self._build_params(variables, user_id)
+        node_count = 0
+        try:
+            workflow_obj = json.loads(workflow_json)
+            node_count = len(workflow_obj.get("nodes") or [])
+        except json.JSONDecodeError:
+            pass
+        log_workflow_event(
+            "workflow_started",
+            extra={
+                "userId": user_id,
+                "nodeCount": node_count,
+                "variableKeys": list((variables or {}).keys()),
+            },
+        )
         try:
             runtime = TinyflowRuntime(data=workflow_json)
             tinyflow = Tinyflow(workflow_json, runtime=runtime)
@@ -158,13 +173,22 @@ class FlowGameExecuteService:
             chain.execute_for_result(params)
             response = self._collect_chain_response(chain, workflow_json)
             logger.info("Tinyflow 执行完成 status=%s", response.get("status"))
+            log_workflow_event(
+                "workflow_finished",
+                extra={
+                    "status": response.get("status"),
+                    "message": response.get("message"),
+                },
+            )
             if progress_callback:
                 progress_callback("workflow_finished", response)
             return response
-        except FlowGameExecuteError:
+        except FlowGameExecuteError as exc:
+            log_workflow_event("workflow_error", message=str(exc))
             raise
         except Exception as exc:
             logger.error("Tinyflow 工作流执行失败", exc_info=True)
+            log_workflow_event("workflow_error", message=str(exc))
             raise FlowGameExecuteError(f"工作流执行失败：{exc}") from exc
 
     def resolve_request(

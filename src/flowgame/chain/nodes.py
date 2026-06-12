@@ -269,6 +269,44 @@ class StartApiNode(StartNode):
         )
 
 
+class ForkNode(BaseNode):
+    """分叉：同时启动所有出边分支（引擎层强制并行）。"""
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        return {
+            "forked": True,
+            "branches": len(self.outward_edges),
+        }
+
+
+class JoinAllNode(BaseNode):
+    """汇聚（全部）：等待所有入边上游成功后再执行一次下游。"""
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.chain.join_barrier import handle_join_arrival
+
+        return handle_join_arrival(
+            chain,
+            self.id,
+            "all",
+            chain._join_source_id,
+        )
+
+
+class JoinAnyNode(BaseNode):
+    """汇聚（任一）：首个成功上游触发下游，仅执行一次。"""
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.chain.join_barrier import handle_join_arrival
+
+        return handle_join_arrival(
+            chain,
+            self.id,
+            "any",
+            chain._join_source_id,
+        )
+
+
 class EndNode(BaseNode):
     def __init__(self) -> None:
         super().__init__()

@@ -19,6 +19,10 @@ from src.flowgame.settings import load_flowgame_dotenv
 
 load_flowgame_dotenv()
 
+from src.flowgame.execution_logging import configure_execution_logging
+
+configure_execution_logging()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
