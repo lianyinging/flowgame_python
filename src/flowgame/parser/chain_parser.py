@@ -22,6 +22,7 @@ from src.flowgame.chain.nodes import (
     LoopNode,
     MemoryReadNode,
     MemoryWriteNode,
+    OssNode,
     SearchEngineNode,
     StartApiNode,
     StartNode,
@@ -34,6 +35,7 @@ from src.flowgame.parser.base_parser import (
     get_llmapi_node_default_output_defs,
     get_database_node_default_output_defs,
     get_fork_node_default_output_defs,
+    get_oss_node_default_output_defs,
     get_join_all_node_default_output_defs,
     get_join_any_node_default_output_defs,
     get_memory_read_default_output_defs,
@@ -73,6 +75,7 @@ class ChainParser:
             "memoryWriteNode": self._parse_memory_write,
             "memoryReadNode": self._parse_memory_read,
             "databaseNode": self._parse_database,
+            "ossNode": self._parse_oss,
             "forkNode": self._parse_fork,
             "joinAllNode": self._parse_join_all,
             "joinAnyNode": self._parse_join_any,
@@ -299,6 +302,18 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_database_node_default_output_defs())
+        return node
+
+    def _parse_oss(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = OssNode()
+        data = get_data(node_object)
+        node.file_type = (data.get("fileType") or "txt").strip().lower()
+        node.object_key_template = data.get("objectKeyTemplate") or "uploads/{{methodKey}}/{{timestamp}}"
+        node.bucket = (data.get("bucket") or "").strip() or None
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_oss_node_default_output_defs())
         return node
 
     def _parse_fork(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

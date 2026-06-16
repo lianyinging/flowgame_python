@@ -223,6 +223,63 @@ def get_database_node_default_output_defs() -> List[Dict[str, Any]]:
     return DATABASE_NODE_DEFAULT_OUTPUT_DEFS
 
 
+OSS_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "success",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "url",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "objectKey",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "fileType",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "contentType",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "etag",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "errorMessage",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
+def get_oss_node_default_output_defs() -> List[Dict[str, Any]]:
+    return OSS_NODE_DEFAULT_OUTPUT_DEFS
+
+
 FORK_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
     {
         "name": "forked",

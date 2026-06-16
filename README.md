@@ -27,6 +27,7 @@
 | `knowledgeNodePlus` | 知识库检索+，对接 Qdrant Collection |
 | `memoryWriteNode` / `memoryReadNode` | 记忆写入 / 读取，跨节点会话上下文 |
 | `htmlTemplateNode` | HTML 模板渲染输出 |
+| `ossNode` | 对象存储上传（content + fileType：image/html/txt/json 等） |
 
 同时兼容 Tinyflow 内置节点（条件分支、循环、HTTP、代码节点等）。
 
@@ -225,11 +226,11 @@ flowgame_python/
 **单独构建本仓库镜像：**
 
 ```bash
-# 生产（构建前：cp .env.example .env 并填写）
+# 生产（镜像内默认使用 .env.example；敏感项请在阿里云运行时环境变量覆盖）
 docker build -f Dockerfile -t flowgame .
 docker run -p 8008:8008 flowgame
 
-# 测试（构建前：cp .env.dev.example .env.dev 并填写）
+# 测试（镜像内默认使用 .env.dev.example；敏感项请在运行时环境变量覆盖）
 docker build -f Dockerfile_test -t flowgame-test .
 docker run -p 8009:8009 flowgame-test
 ```

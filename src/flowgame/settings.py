@@ -54,6 +54,14 @@ class FlowgameSettings:
     mysql_password: Optional[str] = None
     mysql_database: str = ""
     mysql_charset: str = "utf8mb4"
+    oss_endpoint: str = ""
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
+    oss_bucket: str = ""
+    oss_key_prefix: str = "flowgame/"
+    oss_public_read: bool = False
+    oss_public_base_url: str = ""
+    oss_signed_url_expires: int = 3600
 
 
 def _env_int(name: str, default: int) -> int:
@@ -96,4 +104,12 @@ def get_flowgame_settings() -> FlowgameSettings:
         mysql_password=os.getenv("MYSQL_PASSWORD") or None,
         mysql_database=os.getenv("MYSQL_DATABASE", "").strip(),
         mysql_charset=os.getenv("MYSQL_CHARSET", "utf8mb4").strip() or "utf8mb4",
+        oss_endpoint=os.getenv("OSS_ENDPOINT", "").strip(),
+        oss_access_key_id=os.getenv("OSS_ACCESS_KEY_ID", "").strip(),
+        oss_access_key_secret=os.getenv("OSS_ACCESS_KEY_SECRET", "").strip(),
+        oss_bucket=os.getenv("OSS_BUCKET", "").strip(),
+        oss_key_prefix=os.getenv("OSS_KEY_PREFIX", "flowgame/").strip(),
+        oss_public_read=os.getenv("OSS_PUBLIC_READ", "false").lower() in ("1", "true", "yes"),
+        oss_public_base_url=os.getenv("OSS_PUBLIC_BASE_URL", "").strip(),
+        oss_signed_url_expires=_env_int("OSS_SIGNED_URL_EXPIRES", 3600),
     )

@@ -924,6 +924,74 @@ class DatabaseNode(BaseNode):
         return result
 
 
+class OssNode(BaseNode):
+    """对象存储：按 fileType 上传 content（文本或图片 URL）到阿里云 OSS。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.file_type: str = "txt"
+        self.object_key_template: Optional[str] = None
+        self.bucket: Optional[str] = None
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.oss.client import upload_content
+        from src.flowgame.oss.params import (
+            oss_content_is_empty,
+            oss_path_string,
+            render_object_key_template,
+            resolve_oss_parameters,
+        )
+        from src.flowgame.settings import get_flowgame_settings
+
+        result: Dict[str, Any] = {
+            "success": False,
+            "url": "",
+            "objectKey": "",
+            "fileType": self.file_type or "txt",
+            "contentType": "",
+            "etag": "",
+            "errorMessage": "",
+        }
+
+        params = resolve_oss_parameters(chain, self)
+        content = params.get("content")
+        if oss_content_is_empty(content):
+            result["errorMessage"] = (
+                "content 为空：请在输入参数中为 content 选择上游引用（如 htmlTemplateNode.html、"
+                "httpNode.body.html），或类型选「固定值」粘贴 HTML/文本"
+            )
+            return result
+
+        object_key = oss_path_string(params.get("objectKey"))
+        if not object_key:
+            template = (self.object_key_template or "").strip()
+            if not template:
+                result["errorMessage"] = "未配置 Object Key 模板"
+                return result
+            object_key = render_object_key_template(
+                template,
+                chain.memory,
+                params,
+            )
+            if not object_key:
+                result["errorMessage"] = "Object Key 渲染结果为空"
+                return result
+
+        try:
+            cfg = get_flowgame_settings()
+            uploaded = upload_content(
+                content=content,
+                file_type=self.file_type or "txt",
+                object_key=object_key,
+                bucket=self.bucket,
+                settings=cfg,
+            )
+            result.update(uploaded)
+        except Exception as exc:
+            result["errorMessage"] = str(exc)
+        return result
+
+
 class SearchEngineNode(BaseNode):
     def __init__(self) -> None:
         super().__init__()

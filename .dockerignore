@@ -4,6 +4,6 @@ __pycache__
 .git
 .idea
 .env*
-!.env
-!.env.dev
+!.env.example
+!.env.dev.example
 .DS_Store
