@@ -3,7 +3,4 @@ __pycache__
 *.pyc
 .git
 .idea
-.env*
-!.env.example
-!.env.dev.example
 .DS_Store
