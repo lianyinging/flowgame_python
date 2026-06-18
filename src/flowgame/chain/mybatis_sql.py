@@ -297,6 +297,86 @@ def render_mybatis_sql(template: str, params: Dict[str, Any]) -> Tuple[str, List
     return sql, bind_values + vals
 
 
+def split_sql_statements(sql: str) -> List[str]:
+    """按分号拆分多条 SQL，忽略字符串字面量内的分号。"""
+    text = (sql or "").strip()
+    if not text:
+        return []
+
+    statements: List[str] = []
+    current: List[str] = []
+    in_single = False
+    in_double = False
+    in_backtick = False
+    escape = False
+    i = 0
+    length = len(text)
+
+    while i < length:
+        ch = text[i]
+        if escape:
+            current.append(ch)
+            escape = False
+            i += 1
+            continue
+        if ch == "\\" and (in_single or in_double):
+            escape = True
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "'" and not in_double and not in_backtick:
+            in_single = not in_single
+            current.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single and not in_backtick:
+            in_double = not in_double
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "`" and not in_single and not in_double:
+            in_backtick = not in_backtick
+            current.append(ch)
+            i += 1
+            continue
+        if ch == ";" and not in_single and not in_double and not in_backtick:
+            stmt = "".join(current).strip()
+            if stmt:
+                statements.append(stmt)
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+
+    stmt = "".join(current).strip()
+    if stmt:
+        statements.append(stmt)
+    return statements
+
+
+def split_bind_values_for_statements(
+    statements: List[str],
+    bind_values: List[Any],
+) -> List[List[Any]]:
+    """按每条语句中的 %s 数量切分预编译参数（与 pymysql.execute 一致）。"""
+    grouped: List[List[Any]] = []
+    offset = 0
+    for stmt in statements:
+        count = stmt.count("%s")
+        grouped.append(list(bind_values[offset:offset + count]))
+        offset += count
+    if offset != len(bind_values):
+        raise ValueError(
+            f"SQL 预编译参数数量不匹配：模板产生 {len(bind_values)} 个，语句需要 {offset} 个"
+        )
+    return grouped
+
+
+def _is_select_statement(sql_text: str) -> bool:
+    return sql_text.lstrip().upper().startswith("SELECT")
+
+
 def json_safe_value(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.isoformat(sep=" ", timespec="seconds")

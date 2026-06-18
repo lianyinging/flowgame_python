@@ -900,25 +900,39 @@ class DatabaseNode(BaseNode):
             result["errorMessage"] = f"SQL 模板解析失败: {exc}"
             return result
 
-        sql_text = sql.strip()
-        if not sql_text:
-            result["errorMessage"] = "渲染后的 SQL 为空"
+        from src.flowgame.chain.mybatis_sql import (
+            _is_select_statement,
+            split_bind_values_for_statements,
+            split_sql_statements,
+        )
+
+        try:
+            statements = split_sql_statements(sql)
+            if not statements:
+                result["errorMessage"] = "渲染后的 SQL 为空"
+                return result
+            stmt_binds = split_bind_values_for_statements(statements, bind_values)
+        except Exception as exc:
+            result["errorMessage"] = str(exc)
             return result
 
         try:
             with mysql_utils.connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(sql_text, bind_values)
-                    if sql_text.lstrip().upper().startswith("SELECT"):
-                        rows = cursor.fetchall() or []
-                        data = [json_safe_value(dict(row)) for row in rows]
-                        result["success"] = True
-                        result["data"] = data
-                        result["rowCount"] = len(data)
-                    else:
-                        result["success"] = True
-                        result["data"] = []
-                        result["rowCount"] = int(cursor.rowcount or 0)
+                    last_data: List[Any] = []
+                    last_row_count = 0
+                    for stmt_text, stmt_binds in zip(statements, stmt_binds):
+                        cursor.execute(stmt_text, stmt_binds)
+                        if _is_select_statement(stmt_text):
+                            rows = cursor.fetchall() or []
+                            last_data = [json_safe_value(dict(row)) for row in rows]
+                            last_row_count = len(last_data)
+                        else:
+                            last_data = []
+                            last_row_count = int(cursor.rowcount or 0)
+                    result["success"] = True
+                    result["data"] = last_data
+                    result["rowCount"] = last_row_count
         except Exception as exc:
             result["errorMessage"] = str(exc)
         return result
