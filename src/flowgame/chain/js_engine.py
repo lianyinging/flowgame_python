@@ -34,6 +34,19 @@ def eval_js_bool(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None
     return result_str not in ("0", "false", "")
 
 
+def eval_js_bool(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> bool:
+    result = eval_js(code, memory, extra)
+    if result is None:
+        return False
+    result_str = str(result).lower().strip()
+    return result_str not in ("0", "false", "")
+
+
+def _looks_like_javascript(code: str) -> bool:
+    markers = ("var ", "let ", "const ", "function ", "=>", "new Date", "JSON.", "===", "!==")
+    return any(marker in code for marker in markers)
+
+
 def ensure_json_serializable(value: Any) -> Any:
     """将 JS 引擎产物（如 JSObject）等转为可 json.dumps 的 Python 值。"""
     try:
@@ -78,16 +91,23 @@ def _eval_with_node(code: str, bindings: Dict[str, Any]) -> Any:
             "JavaScript 引擎不可用：请执行 pip install --force-reinstall py-mini-racer，"
             "或安装 Node.js 后重试。"
         )
+    # 通过 stdin 传参，避免工作流 memory 过大时 argv 超过系统 ARG_MAX（Argument list too long）
     script = r"""
-const bindings = JSON.parse(process.argv[1]);
-const userCode = process.argv[2];
+const fs = require('fs');
+const { bindings, userCode } = JSON.parse(fs.readFileSync(0, 'utf8'));
 for (const [k, v] of Object.entries(bindings)) globalThis[k] = v;
 const result = eval(userCode);
 const out = { ok: true, result: result === undefined ? null : result };
 console.log(JSON.stringify(out));
 """
+    payload = json.dumps(
+        {"bindings": bindings, "userCode": code},
+        ensure_ascii=False,
+        default=str,
+    )
     proc = subprocess.run(
-        [node, "-e", script, json.dumps(bindings, ensure_ascii=False, default=str), code],
+        [node, "-e", script],
+        input=payload,
         capture_output=True,
         text=True,
         timeout=15,
@@ -146,6 +166,12 @@ def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = No
             return ensure_json_serializable(_eval_with_node(stripped, bindings))
         except Exception as exc:
             logger.warning("Node.js 执行动态代码失败: %s", exc)
+
+    if _looks_like_javascript(stripped):
+        raise RuntimeError(
+            "JavaScript 动态代码执行失败：py-mini-racer 不可用，且 Node.js 备选执行失败。"
+            "请检查容器内 Node.js 是否可用，或修复 py-mini-racer 原生库。"
+        )
 
     try:
         return _eval_as_python(stripped, bindings)
