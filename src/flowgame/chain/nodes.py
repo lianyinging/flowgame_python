@@ -227,6 +227,27 @@ class StartNode(BaseNode):
         return chain.get_parameter_values(self)
 
 
+class StartTalkNode(StartNode):
+    """对话开始节点：供 GET /talk 打开对话页；执行时透出 message / sessionId 供下游引用。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.method_key: Optional[str] = None
+        self.talk_template: str = "default"
+        self.talk_title: Optional[str] = None
+        self.welcome_message: Optional[str] = None
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
+        message = chain.memory.get("message")
+        if message is not None:
+            result["message"] = message
+        session_id = chain.memory.get("sessionId")
+        if session_id is not None:
+            result["sessionId"] = session_id
+        return result
+
+
 class StartApiNode(StartNode):
     """API 接口开始节点：作为外部调用入口，定义对外返回字段映射（无输入参数）。"""
 

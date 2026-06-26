@@ -34,14 +34,6 @@ def eval_js_bool(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None
     return result_str not in ("0", "false", "")
 
 
-def eval_js_bool(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> bool:
-    result = eval_js(code, memory, extra)
-    if result is None:
-        return False
-    result_str = str(result).lower().strip()
-    return result_str not in ("0", "false", "")
-
-
 def _looks_like_javascript(code: str) -> bool:
     markers = ("var ", "let ", "const ", "function ", "=>", "new Date", "JSON.", "===", "!==")
     return any(marker in code for marker in markers)

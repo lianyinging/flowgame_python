@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.flowgame.qdrant.router import qdrant_router
 from src.flowgame.redis.router import redis_router
+from src.flowgame.key_prefix import bind_request_key_prefixes
 from src.flowgame.service import FlowGameExecuteError, flow_game_execute_service
 
 flowgame_router = APIRouter()
@@ -20,6 +21,73 @@ class FlowGameExecuteResponse(BaseModel):
     code: int = Field(description="200 表示成功")
     msg: str = Field(description="响应消息")
     data: Optional[Dict[str, Any]] = Field(default=None, description="执行结果")
+
+
+class FlowGameTalkMessageResponse(BaseModel):
+    code: int = Field(description="200 表示成功")
+    msg: str = Field(description="响应消息")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="assistantMessage 等")
+
+
+@flowgame_router.get("/talk", response_class=HTMLResponse)
+async def talk_page(
+    methodKey: str = Query(..., description="流程 methodKey"),
+    sessionId: Optional[str] = Query(None, description="可选会话 ID"),
+    redisKeyPrefix: Optional[str] = Query(
+        None,
+        description="Redis 键前缀，与编辑器保存一致（默认 flow_game:）；浏览器直连时必填若与后端环境变量不同",
+    ),
+):
+    """
+    打开对话页 HTML。
+
+    根据流程中「对话开始」节点的模板配置渲染页面（default / minimal）。
+    """
+    if redisKeyPrefix and str(redisKeyPrefix).strip():
+        bind_request_key_prefixes(redis_key_prefix=str(redisKeyPrefix).strip())
+    try:
+        html = flow_game_execute_service.render_talk_html(
+            methodKey,
+            session_id=sessionId,
+        )
+    except FlowGameExecuteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return HTMLResponse(content=html)
+
+
+@flowgame_router.post("/talk/message", response_model=FlowGameTalkMessageResponse)
+async def talk_message(
+    request: Request,
+    user_id: Optional[str] = Header(None, alias="userId"),
+):
+    """
+    发送对话消息并执行工作流。
+
+    请求体::
+        {"methodKey": "流程名称", "message": "用户输入", "sessionId": "可选", "variables": {...}}
+
+    响应 data 含 assistantMessage: {"role": "assistant", "content": "..."}
+    """
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from exc
+
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
+
+    redis_key_prefix = body.get("redisKeyPrefix")
+    if redis_key_prefix is not None and str(redis_key_prefix).strip():
+        bind_request_key_prefixes(redis_key_prefix=str(redis_key_prefix).strip())
+
+    try:
+        result = flow_game_execute_service.execute_talk_message(
+            body, user_id=user_id, http_headers=request.headers
+        )
+    except FlowGameExecuteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return FlowGameTalkMessageResponse(code=200, msg="执行成功", data=result)
 
 
 @flowgame_router.post("/execute", response_model=FlowGameExecuteResponse)

@@ -71,6 +71,29 @@ def get_http_node_default_output_defs() -> List[Dict[str, Any]]:
     return HTTP_NODE_DEFAULT_OUTPUT_DEFS
 
 
+# 与前端 talk-node-output-defs.ts 一致
+TALK_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "message",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "sessionId",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
+def get_talk_node_default_output_defs() -> List[Dict[str, Any]]:
+    return TALK_NODE_DEFAULT_OUTPUT_DEFS
+
+
 # 与前端 llmapi-node-output-defs.ts 一致
 LLMAPI_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
     {

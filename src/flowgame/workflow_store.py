@@ -47,6 +47,32 @@ def load_workflow_json_by_method_key(method_key: str) -> str:
     if not key:
         raise FlowGameWorkflowStoreError("methodKey 不能为空")
 
+    from src.flowgame.key_prefix import (
+        DEFAULT_REDIS_KEY_PREFIX,
+        bind_request_key_prefixes,
+        get_redis_key_prefix,
+    )
+
+    prefixes: List[str] = []
+    current = get_redis_key_prefix()
+    prefixes.append(current)
+    if current != DEFAULT_REDIS_KEY_PREFIX:
+        prefixes.append(DEFAULT_REDIS_KEY_PREFIX)
+
+    last_error: FlowGameWorkflowStoreError | None = None
+    for prefix in prefixes:
+        bind_request_key_prefixes(redis_key_prefix=prefix)
+        try:
+            return _load_workflow_json_with_bound_prefix(key)
+        except FlowGameWorkflowStoreError as exc:
+            last_error = exc
+
+    if last_error:
+        raise last_error
+    raise FlowGameWorkflowStoreError(f"未找到 methodKey 对应的工作流：{key}")
+
+
+def _load_workflow_json_with_bound_prefix(key: str) -> str:
     from src.flowgame.redis.client import redis_client
 
     if not redis_client.ping():

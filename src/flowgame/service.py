@@ -21,7 +21,14 @@ from src.flowgame.parser.base_parser import (
 from src.flowgame.tinyflow import Tinyflow
 from src.flowgame.tinyflow_config import TinyflowRuntime
 from src.flowgame.workflow_start_api_rules import validate_start_api_workflow
+from src.flowgame.workflow_talk_rules import (
+    find_start_talk_data,
+    validate_assistant_message,
+    validate_talk_start_workflow,
+    validate_talk_start_workflow_for_page,
+)
 from src.flowgame.execution_logging import log_workflow_event
+from src.flowgame.talk.renderer import render_talk_page
 from src.flowgame.workflow_store import (
     FlowGameWorkflowStoreError,
     load_workflow_json_by_method_key,
@@ -444,6 +451,110 @@ class FlowGameExecuteService:
             return json.loads(json.dumps(value, ensure_ascii=False, default=str))
         except (TypeError, ValueError):
             return str(value)
+
+    def render_talk_html(
+        self,
+        method_key: str,
+        *,
+        session_id: Optional[str] = None,
+    ) -> str:
+        key = (method_key or "").strip()
+        if not key:
+            raise FlowGameExecuteError("methodKey 不能为空")
+        try:
+            workflow_json = load_workflow_json_by_method_key(key)
+        except FlowGameWorkflowStoreError as exc:
+            raise FlowGameExecuteError(str(exc)) from exc
+        try:
+            validate_talk_start_workflow_for_page(workflow_json)
+        except ValueError as exc:
+            raise FlowGameExecuteError(str(exc)) from exc
+
+        talk_data = find_start_talk_data(workflow_json) or {}
+        configured_key = (talk_data.get("methodKey") or "").strip()
+        if configured_key and configured_key != key:
+            raise FlowGameExecuteError(f"methodKey 与流程配置不一致，期望：{configured_key}")
+
+        return render_talk_page(
+            method_key=key,
+            talk_title=str(talk_data.get("talkTitle") or "对话"),
+            welcome_message=str(talk_data.get("welcomeMessage") or ""),
+            talk_template=str(talk_data.get("talkTemplate") or "default"),
+            session_id=session_id or "",
+        )
+
+    def execute_talk_message(
+        self,
+        body: Dict[str, Any],
+        user_id: Optional[Any] = None,
+        *,
+        http_headers: Optional[Mapping[str, str]] = None,
+    ) -> Dict[str, Any]:
+        if not body:
+            raise FlowGameExecuteError("请求体不能为空")
+
+        method_key = str(body.get("methodKey") or "").strip()
+        if not method_key:
+            raise FlowGameExecuteError("methodKey 不能为空")
+
+        message = body.get("message")
+        if message is None or (isinstance(message, str) and not message.strip()):
+            raise FlowGameExecuteError("message 不能为空")
+        if not isinstance(message, str):
+            raise FlowGameExecuteError("message 必须为字符串")
+
+        session_id = body.get("sessionId")
+        if session_id is not None and not isinstance(session_id, str):
+            raise FlowGameExecuteError("sessionId 必须为字符串")
+
+        try:
+            workflow_json = load_workflow_json_by_method_key(method_key)
+        except FlowGameWorkflowStoreError as exc:
+            raise FlowGameExecuteError(str(exc)) from exc
+
+        try:
+            validate_talk_start_workflow(workflow_json)
+        except ValueError as exc:
+            raise FlowGameExecuteError(str(exc)) from exc
+
+        talk_data = find_start_talk_data(workflow_json) or {}
+        configured_key = (talk_data.get("methodKey") or "").strip()
+        if configured_key and configured_key != method_key:
+            raise FlowGameExecuteError(
+                f"methodKey 与流程配置不一致，期望：{configured_key}"
+            )
+
+        variables: Dict[str, Any] = {"message": message.strip()}
+        if session_id and str(session_id).strip():
+            variables["sessionId"] = str(session_id).strip()
+
+        extra_vars = body.get("variables")
+        if extra_vars is not None:
+            if not isinstance(extra_vars, dict):
+                raise FlowGameExecuteError("variables 必须为 JSON 对象")
+            variables.update(extra_vars)
+
+        merged_headers = self._merge_http_headers(variables, http_headers)
+        result = self.execute_workflow(
+            workflow_json,
+            merged_headers,
+            user_id=user_id,
+        )
+
+        end_output = result.get("endNodeOutput") or result.get("lastNodeOutput") or {}
+        if not isinstance(end_output, dict):
+            raise FlowGameExecuteError("结束节点未返回有效输出")
+
+        assistant_raw = end_output.get("assistantMessage")
+        assistant_message = validate_assistant_message(assistant_raw)
+
+        response: Dict[str, Any] = {
+            "methodKey": method_key,
+            "assistantMessage": assistant_message,
+        }
+        if session_id and str(session_id).strip():
+            response["sessionId"] = str(session_id).strip()
+        return response
 
 
 flow_game_execute_service = FlowGameExecuteService()

@@ -25,6 +25,7 @@ from src.flowgame.chain.nodes import (
     OssNode,
     SearchEngineNode,
     StartApiNode,
+    StartTalkNode,
     StartNode,
     TemplateNode,
 )
@@ -32,6 +33,7 @@ from src.flowgame.parser.base_parser import (
     add_output_defs,
     get_data,
     get_http_node_default_output_defs,
+    get_talk_node_default_output_defs,
     get_llmapi_node_default_output_defs,
     get_database_node_default_output_defs,
     get_fork_node_default_output_defs,
@@ -61,6 +63,7 @@ class ChainParser:
         self._parsers = {
             "startNode": self._parse_start,
             "node_start_api": self._parse_start_api,
+            "node_start_talk": self._parse_start_talk,
             "codeNode": self._parse_code,
             "httpNode": self._parse_http,
             "knowledgeNode": self._parse_knowledge,
@@ -190,6 +193,21 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_http_node_default_output_defs())
+        return node
+
+    def _parse_start_talk(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        from src.flowgame.workflow_talk_rules import resolve_talk_template
+
+        node = StartTalkNode()
+        data = get_data(node_object)
+        node.method_key = (data.get("methodKey") or "").strip() or None
+        node.talk_template = resolve_talk_template(data.get("talkTemplate"))
+        node.talk_title = data.get("talkTitle")
+        node.welcome_message = data.get("welcomeMessage")
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_talk_node_default_output_defs())
         return node
 
     def _parse_end(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ talk_title }}</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: #fff;
+      color: #111;
+    }
+    .wrap {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px 32px;
+    }
+    h1 {
+      font-size: 18px;
+      margin: 0 0 12px;
+      font-weight: 600;
+    }
+    .welcome {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    #chat {
+      border-top: 1px solid #eee;
+      padding-top: 12px;
+      min-height: 240px;
+    }
+    .line {
+      margin: 10px 0;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .line.user::before { content: '你：'; color: #555; }
+    .line.assistant::before { content: 'AI：'; color: #555; }
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    input[type="text"] {
+      flex: 1;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    button {
+      border: 1px solid #111;
+      background: #111;
+      color: #fff;
+      border-radius: 4px;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    #status { color: #b00020; font-size: 12px; min-height: 16px; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap" data-method-key="{{ method_key }}" data-message-api="{{ message_api_url }}" data-redis-key-prefix="{{ redis_key_prefix }}">
+    <h1>{{ talk_title }}</h1>
+    {% if welcome_message %}
+    <div class="welcome" id="welcome">{{ welcome_message | safe }}</div>
+    {% endif %}
+    <div id="chat"></div>
+    <div id="status"></div>
+    <div class="row">
+      <input id="input" type="text" placeholder="输入消息" />
+      <button id="send" type="button">发送</button>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const root = document.querySelector('.wrap');
+      const methodKey = root.dataset.methodKey;
+      const messageApi = root.dataset.messageApi;
+      const redisKeyPrefix = root.dataset.redisKeyPrefix || '';
+      const chat = document.getElementById('chat');
+      const input = document.getElementById('input');
+      const sendBtn = document.getElementById('send');
+      const statusEl = document.getElementById('status');
+      const initialSessionId = {{ session_id | tojson }};
+
+      function getSessionId() {
+        if (initialSessionId) return initialSessionId;
+        const key = 'flowgame_talk_session_' + methodKey;
+        let id = localStorage.getItem(key);
+        if (!id) {
+          id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+          localStorage.setItem(key, id);
+        }
+        return id;
+      }
+
+      function appendLine(role, content) {
+        const div = document.createElement('div');
+        div.className = 'line ' + role;
+        div.textContent = content;
+        chat.appendChild(div);
+      }
+
+      async function sendMessage() {
+        const text = input.value.trim();
+        if (!text) return;
+        appendLine('user', text);
+        input.value = '';
+        sendBtn.disabled = true;
+        statusEl.textContent = '';
+        try {
+          const res = await fetch(messageApi, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(redisKeyPrefix ? { 'X-Flowgame-Redis-Key-Prefix': redisKeyPrefix } : {})
+            },
+            body: JSON.stringify({
+              methodKey,
+              message: text,
+              sessionId: getSessionId(),
+              ...(redisKeyPrefix ? { redisKeyPrefix } : {})
+            })
+          });
+          const payload = await res.json();
+          if (!res.ok || payload.code !== 200) {
+            throw new Error(payload.msg || payload.detail || '请求失败');
+          }
+          const assistant = payload.data && payload.data.assistantMessage;
+          appendLine('assistant', (assistant && assistant.content) || '(无回复)');
+        } catch (err) {
+          statusEl.textContent = err.message || String(err);
+        } finally {
+          sendBtn.disabled = false;
+        }
+      }
+
+      sendBtn.addEventListener('click', sendMessage);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
