@@ -4,7 +4,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONPATH=/app \
-    APP_ENV=dev
+    APP_ENV=dev \
+    FLOWGAME_HOST=0.0.0.0 \
+    FLOWGAME_PORT=8009 \
+    FLOWGAME_RELOAD=false
 
 WORKDIR /app
 
@@ -28,4 +31,4 @@ EXPOSE 8009
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 --start-period=30s \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8009/health')"
 
-CMD ["uvicorn", "src.flowgame.app:app", "--host", "0.0.0.0", "--port", "8009"]
+CMD ["python", "run.py"]

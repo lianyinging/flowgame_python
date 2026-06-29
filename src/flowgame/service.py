@@ -33,6 +33,7 @@ from src.flowgame.workflow_store import (
     FlowGameWorkflowStoreError,
     load_workflow_json_by_method_key,
 )
+from src.flowgame.workflow_runner import WorkflowQueueFullError, workflow_run_slot
 
 
 class FlowGameExecuteError(Exception):
@@ -96,6 +97,20 @@ class FlowGameExecuteService:
             yield self._stream_line("workflow_error", {"message": str(exc)})
             return
 
+        try:
+            with workflow_run_slot():
+                yield from self._iter_execute_stream_locked(
+                    resolved,
+                    user_id=user_id,
+                )
+        except WorkflowQueueFullError as exc:
+            yield self._stream_line("workflow_error", {"message": str(exc)})
+
+    def _iter_execute_stream_locked(
+        self,
+        resolved: ResolvedRequest,
+        user_id: Optional[Any] = None,
+    ) -> Generator[str, None, None]:
         event_queue: queue.Queue = queue.Queue()
 
         def on_progress(event: str, data: Dict[str, Any]) -> None:
@@ -103,7 +118,7 @@ class FlowGameExecuteService:
 
         def run() -> None:
             try:
-                self.execute_workflow(
+                self._execute_workflow_impl(
                     resolved.workflow_json,
                     resolved.variables,
                     user_id=user_id,
@@ -137,6 +152,22 @@ class FlowGameExecuteService:
         return json.dumps({"event": event, "data": safe_data}, ensure_ascii=False) + "\n"
 
     def execute_workflow(
+        self,
+        workflow_json: str,
+        variables: Optional[Dict[str, Any]] = None,
+        user_id: Optional[Any] = None,
+        *,
+        progress_callback: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        with workflow_run_slot():
+            return self._execute_workflow_impl(
+                workflow_json,
+                variables,
+                user_id=user_id,
+                progress_callback=progress_callback,
+            )
+
+    def _execute_workflow_impl(
         self,
         workflow_json: str,
         variables: Optional[Dict[str, Any]] = None,

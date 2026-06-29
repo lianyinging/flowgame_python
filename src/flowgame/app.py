@@ -67,7 +67,23 @@ def start_server() -> None:
 
     host = os.getenv("FLOWGAME_HOST", "0.0.0.0")
     port = int(os.getenv("FLOWGAME_PORT", "8001"))
-    uvicorn.run("src.flowgame.app:app", host=host, port=port, reload=True)
+    workers = int(os.getenv("FLOWGAME_UVICORN_WORKERS", "1"))
+    reload_env = os.getenv("FLOWGAME_RELOAD", "true").strip().lower()
+    reload = reload_env in ("1", "true", "yes")
+
+    if workers > 1:
+        if reload:
+            reload = False
+        uvicorn.run(
+            "src.flowgame.app:app",
+            host=host,
+            port=port,
+            workers=workers,
+            reload=False,
+        )
+        return
+
+    uvicorn.run("src.flowgame.app:app", host=host, port=port, reload=reload)
 
 
 if __name__ == "__main__":

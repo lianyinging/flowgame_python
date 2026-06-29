@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Header, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -11,6 +11,7 @@ from src.flowgame.qdrant.router import qdrant_router
 from src.flowgame.redis.router import redis_router
 from src.flowgame.key_prefix import bind_request_key_prefixes
 from src.flowgame.service import FlowGameExecuteError, flow_game_execute_service
+from src.flowgame.workflow_runner import WorkflowQueueFullError
 
 flowgame_router = APIRouter()
 flowgame_router.include_router(redis_router, prefix="/redis", tags=["FlowGame-Redis"])
@@ -30,7 +31,7 @@ class FlowGameTalkMessageResponse(BaseModel):
 
 
 @flowgame_router.get("/talk", response_class=HTMLResponse)
-async def talk_page(
+def talk_page(
     methodKey: str = Query(..., description="流程 methodKey"),
     sessionId: Optional[str] = Query(None, description="可选会话 ID"),
     redisKeyPrefix: Optional[str] = Query(
@@ -56,8 +57,9 @@ async def talk_page(
 
 
 @flowgame_router.post("/talk/message", response_model=FlowGameTalkMessageResponse)
-async def talk_message(
+def talk_message(
     request: Request,
+    body: Dict[str, Any] = Body(...),
     user_id: Optional[str] = Header(None, alias="userId"),
 ):
     """
@@ -68,11 +70,6 @@ async def talk_message(
 
     响应 data 含 assistantMessage: {"role": "assistant", "content": "..."}
     """
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from exc
-
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
 
@@ -84,6 +81,8 @@ async def talk_message(
         result = flow_game_execute_service.execute_talk_message(
             body, user_id=user_id, http_headers=request.headers
         )
+    except WorkflowQueueFullError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except FlowGameExecuteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -91,8 +90,9 @@ async def talk_message(
 
 
 @flowgame_router.post("/execute", response_model=FlowGameExecuteResponse)
-async def execute_flow(
+def execute_flow(
     request: Request,
+    body: Dict[str, Any] = Body(...),
     user_id: Optional[str] = Header(None, alias="userId"),
 ):
     """
@@ -110,11 +110,6 @@ async def execute_flow(
 
     响应 data：apiOutput / endNodeOutput、lastNodeOutput、nodeExecutions（各节点执行详情）、methodKey、status 等
     """
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from exc
-
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
 
@@ -122,6 +117,8 @@ async def execute_flow(
         result = flow_game_execute_service.execute(
             body, user_id=user_id, http_headers=request.headers
         )
+    except WorkflowQueueFullError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except FlowGameExecuteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -136,8 +133,9 @@ async def execute_flow(
 
 
 @flowgame_router.post("/execute/stream")
-async def execute_flow_stream(
+def execute_flow_stream(
     request: Request,
+    body: Dict[str, Any] = Body(...),
     user_id: Optional[str] = Header(None, alias="userId"),
 ):
     """
@@ -145,11 +143,6 @@ async def execute_flow_stream(
 
     每行 JSON：{"event": "node_started"|"node_finished"|"workflow_finished"|"workflow_error", "data": {...}}
     """
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="请求体必须是 JSON") from exc
-
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
 
