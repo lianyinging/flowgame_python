@@ -300,6 +300,82 @@ class ForkNode(BaseNode):
         }
 
 
+class IfNode(BaseNode):
+    """条件选择器：if / else if / else 顺序匹配，互斥路由。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.condition_expr: Optional[str] = None
+        self.branches: List[Dict[str, Any]] = []
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.chain.branch_router import parse_if_branches_from_data
+        from src.flowgame.chain.js_engine import eval_js_bool
+
+        param_scope = chain.get_parameter_values(self)
+        branches = self.branches or parse_if_branches_from_data(
+            {"condition": self.condition_expr, "branches": []}
+        )
+
+        matched_branch: Optional[str] = None
+        matched = False
+        for branch in branches:
+            btype = str(branch.get("type") or "if").strip().lower()
+            branch_id = str(branch.get("id") or "").strip() or "else"
+            if btype == "else":
+                matched_branch = branch_id
+                matched = False
+                break
+            expr = str(branch.get("condition") or "").strip()
+            if expr:
+                rendered = format_template(expr, param_scope)
+                if eval_js_bool(rendered, chain.memory, extra=param_scope):
+                    matched_branch = branch_id
+                    matched = True
+                    break
+
+        if matched_branch is None:
+            matched_branch = "else"
+
+        return {"matched": matched, "branch": matched_branch}
+
+
+class SwitchNode(BaseNode):
+    """分支选择器：将输入参数与 case 值做字符串相等匹配。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.switch_key: str = "value"
+        self.cases: List[Dict[str, Any]] = []
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        param_scope = chain.get_parameter_values(self)
+        key = (self.switch_key or "value").strip() or "value"
+        switch_value = param_scope.get(key)
+        if switch_value is None:
+            switch_value = chain.get(key)
+            if switch_value is None:
+                switch_value = chain._resolve_bare_field(key)
+
+        switch_text = "" if switch_value is None else str(switch_value).strip()
+        for case in self.cases:
+            case_id = str(case.get("id") or "").strip()
+            case_value_raw = str(case.get("value") or "").strip()
+            case_value = (
+                format_template(case_value_raw, param_scope).strip()
+                if case_value_raw
+                else ""
+            )
+            if case_id and case_value and switch_text == case_value:
+                return {
+                    "matched": True,
+                    "branch": case_id,
+                    "switchValue": switch_text,
+                }
+
+        return {"matched": False, "branch": "else", "switchValue": switch_text}
+
+
 class JoinAllNode(BaseNode):
     """汇聚（全部）：等待所有入边上游成功后再执行一次下游。"""
 

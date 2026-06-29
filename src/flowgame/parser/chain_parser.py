@@ -13,6 +13,7 @@ from src.flowgame.chain.nodes import (
     EndNode,
     ForkNode,
     HttpNode,
+    IfNode,
     JoinAllNode,
     JoinAnyNode,
     KnowledgeNode,
@@ -27,6 +28,7 @@ from src.flowgame.chain.nodes import (
     StartApiNode,
     StartTalkNode,
     StartNode,
+    SwitchNode,
     TemplateNode,
 )
 from src.flowgame.parser.base_parser import (
@@ -37,6 +39,8 @@ from src.flowgame.parser.base_parser import (
     get_llmapi_node_default_output_defs,
     get_database_node_default_output_defs,
     get_fork_node_default_output_defs,
+    get_if_node_default_output_defs,
+    get_switch_node_default_output_defs,
     get_oss_node_default_output_defs,
     get_join_all_node_default_output_defs,
     get_join_any_node_default_output_defs,
@@ -45,7 +49,11 @@ from src.flowgame.parser.base_parser import (
     parse_parameters,
     parse_parameters_array,
 )
-from src.flowgame.tinyflow_config import TinyflowRuntime
+from src.flowgame.chain.branch_router import (
+    parse_if_branches_from_data,
+    parse_switch_cases_from_data,
+    read_switch_key_from_data,
+)
 
 
 def _parse_positive_int(value: Any, default: int) -> int:
@@ -80,6 +88,8 @@ class ChainParser:
             "databaseNode": self._parse_database,
             "ossNode": self._parse_oss,
             "forkNode": self._parse_fork,
+            "ifNode": self._parse_if,
+            "switchNode": self._parse_switch,
             "joinAllNode": self._parse_join_all,
             "joinAnyNode": self._parse_join_any,
         }
@@ -123,7 +133,8 @@ class ChainParser:
             if data:
                 condition_string = data.get("condition")
                 if condition_string and str(condition_string).strip():
-                    parsed.condition = JavascriptStringCondition(str(condition_string))
+                    if node_object.get("type") not in ("ifNode", "switchNode"):
+                        parsed.condition = JavascriptStringCondition(str(condition_string))
                 if "async" in data:
                     parsed.async_exec = bool(data.get("async"))
                 if data.get("title"):
@@ -173,6 +184,12 @@ class ChainParser:
             condition_string = data.get("condition")
             if condition_string and str(condition_string).strip():
                 edge.condition = JavascriptStringCondition(str(condition_string))
+            branch = data.get("branch")
+            if branch is not None and str(branch).strip():
+                edge.branch = str(branch).strip().lower()
+        source_handle = edge_object.get("sourceHandle")
+        if source_handle is not None and str(source_handle).strip() and not edge.branch:
+            edge.branch = str(source_handle).strip()
         return edge
 
     def _parse_start(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
@@ -340,6 +357,28 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_fork_node_default_output_defs())
+        return node
+
+    def _parse_if(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = IfNode()
+        data = get_data(node_object)
+        node.condition_expr = data.get("condition")
+        node.branches = parse_if_branches_from_data(data)
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_if_node_default_output_defs())
+        return node
+
+    def _parse_switch(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = SwitchNode()
+        data = get_data(node_object)
+        node.switch_key = read_switch_key_from_data(data)
+        node.cases = parse_switch_cases_from_data(data)
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_switch_node_default_output_defs())
         return node
 
     def _parse_join_all(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

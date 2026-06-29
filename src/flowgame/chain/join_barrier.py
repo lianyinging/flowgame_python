@@ -7,6 +7,9 @@ from typing import Any, Dict, FrozenSet, Optional
 
 JOIN_NODE_TYPES = frozenset({"joinAllNode", "joinAnyNode"})
 FORK_NODE_TYPE = "forkNode"
+IF_NODE_TYPE = "ifNode"
+SWITCH_NODE_TYPE = "switchNode"
+EXCLUSIVE_BRANCH_NODE_TYPES = frozenset({IF_NODE_TYPE, SWITCH_NODE_TYPE})
 
 
 @dataclass

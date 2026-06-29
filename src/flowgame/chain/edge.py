@@ -13,3 +13,4 @@ class ChainEdge:
     source: Optional[str] = None
     target: Optional[str] = None
     condition: Optional[EdgeCondition] = None
+    branch: Optional[str] = None

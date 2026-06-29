@@ -13,10 +13,14 @@ from src.flowgame.chain.enums import ChainStatus, DataType, RefType
 from src.flowgame.chain.exceptions import ChainException, ChainSuspendException
 from src.flowgame.chain.parameter import Parameter
 from src.flowgame.chain.join_barrier import (
+    EXCLUSIVE_BRANCH_NODE_TYPES,
     FORK_NODE_TYPE,
+    IF_NODE_TYPE,
     JOIN_NODE_TYPES,
+    SWITCH_NODE_TYPE,
     init_join_barriers,
 )
+from src.flowgame.chain.branch_router import select_exclusive_branch_edges
 from src.flowgame.chain.template import format_template
 from src.flowgame.execution_logging import log_node_event
 
@@ -424,6 +428,37 @@ class Chain(ChainNode):
             return
 
         if not current.outward_edges:
+            return
+
+        if current.node_type in EXCLUSIVE_BRANCH_NODE_TYPES:
+            matched_branch = ""
+            if execute_result:
+                matched_branch = str(execute_result.get("branch") or "").strip()
+
+            selected_edges = select_exclusive_branch_edges(
+                list(current.outward_edges),
+                matched_branch,
+            )
+
+            selected_ids = {edge.id for edge in selected_edges}
+            for edge in current.outward_edges:
+                if edge.id in selected_ids:
+                    continue
+                skip_target = self._get_node_by_id(edge.target or "")
+                if skip_target:
+                    self._record_node_execution(skip_target, "skipped")
+
+            next_execute_nodes: List[_ExecuteNode] = []
+            for edge in selected_edges:
+                if edge.condition and not edge.condition.check_edge(self, edge):
+                    continue
+                next_node = self._get_node_by_id(edge.target or "")
+                if next_node:
+                    next_execute_nodes.append(
+                        _ExecuteNode(next_node, current, edge.id or "")
+                    )
+            if next_execute_nodes:
+                self._do_execute_nodes(next_execute_nodes, force_parallel=False)
             return
 
         next_execute_nodes: List[_ExecuteNode] = []

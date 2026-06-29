@@ -404,8 +404,59 @@ JOIN_ANY_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
 ]
 
 
+IF_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "matched",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "branch",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
 def get_fork_node_default_output_defs() -> List[Dict[str, Any]]:
     return FORK_NODE_DEFAULT_OUTPUT_DEFS
+
+
+def get_if_node_default_output_defs() -> List[Dict[str, Any]]:
+    return IF_NODE_DEFAULT_OUTPUT_DEFS
+
+
+SWITCH_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {
+        "name": "matched",
+        "nameDisabled": True,
+        "dataType": "Boolean",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "branch",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+    {
+        "name": "switchValue",
+        "nameDisabled": True,
+        "dataType": "String",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
+]
+
+
+def get_switch_node_default_output_defs() -> List[Dict[str, Any]]:
+    return SWITCH_NODE_DEFAULT_OUTPUT_DEFS
 
 
 def get_join_all_node_default_output_defs() -> List[Dict[str, Any]]:
