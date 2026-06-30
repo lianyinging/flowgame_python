@@ -2,81 +2,264 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>{{ talk_title }}</title>
   <style>
-    body {
+    :root {
+      --page-bg: #F4F8FF;
+      --text: #1f2937;
+      --user-bubble: #3b82f6;
+      --assistant-bubble: #ffffff;
+      --composer-bg: rgba(244, 248, 255, 0.96);
+      --composer-bar-height: 76px;
+      --composer-offset: calc(var(--composer-bar-height) + env(safe-area-inset-bottom, 0px));
+    }
+    * { box-sizing: border-box; }
+    html, body {
       margin: 0;
-      font-family: system-ui, sans-serif;
-      background: #fff;
-      color: #111;
+      height: 100%;
+    }
+    body {
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--page-bg);
+      color: var(--text);
+      touch-action: manipulation;
     }
     .wrap {
+      height: 100dvh;
+      max-height: 100dvh;
       max-width: 720px;
       margin: 0 auto;
-      padding: 24px 16px 32px;
+      display: flex;
+      flex-direction: column;
+      background: var(--page-bg);
     }
-    h1 {
-      font-size: 18px;
-      margin: 0 0 12px;
-      font-weight: 600;
+    .main {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      padding: 24px 16px var(--composer-offset);
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    .main::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     .welcome {
-      color: #666;
-      font-size: 14px;
       margin-bottom: 16px;
       line-height: 1.5;
+      white-space: normal;
+      word-break: normal;
     }
-    #chat {
-      border-top: 1px solid #eee;
-      padding-top: 12px;
-      min-height: 240px;
+    .welcome > * {
+      max-width: 100%;
     }
-    .line {
-      margin: 10px 0;
-      line-height: 1.5;
+    .chat {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding-top: 0;
+      min-height: 120px;
+    }
+    .msg-row {
+      display: flex;
+      width: 100%;
+      scroll-margin-bottom: var(--composer-offset);
+    }
+    .msg-row.user { justify-content: flex-end; }
+    .msg-row.assistant { justify-content: flex-start; }
+    .msg {
+      max-width: 82%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      line-height: 1.6;
+      font-size: 15px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+    }
+    .msg.user {
+      background: var(--user-bubble);
+      color: #fff;
+      border-bottom-right-radius: 5px;
+    }
+    .msg.assistant {
+      background: var(--assistant-bubble);
+      color: var(--text);
+      border-bottom-left-radius: 5px;
+    }
+    .msg.assistant.markdown {
+      white-space: normal;
+    }
+    .msg.assistant.markdown p {
+      margin: 0 0 0.6em;
+    }
+    .msg.assistant.markdown p:last-child {
+      margin-bottom: 0;
+    }
+    .msg.assistant.markdown ul,
+    .msg.assistant.markdown ol {
+      margin: 0.4em 0 0.6em;
+      padding-left: 1.25em;
+    }
+    .msg.assistant.markdown li {
+      margin: 0.2em 0;
+    }
+    .msg.assistant.markdown pre {
+      margin: 0.5em 0;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: #f1f5f9;
+      overflow-x: auto;
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .line.user::before { content: '你：'; color: #555; }
-    .line.assistant::before { content: 'AI：'; color: #555; }
+    .msg.assistant.markdown code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.92em;
+      background: #f1f5f9;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+    .msg.assistant.markdown pre code {
+      background: transparent;
+      padding: 0;
+    }
+    .msg.assistant.markdown h1,
+    .msg.assistant.markdown h2,
+    .msg.assistant.markdown h3,
+    .msg.assistant.markdown h4 {
+      margin: 0.5em 0 0.35em;
+      font-size: 1em;
+      font-weight: 600;
+    }
+    .msg.assistant.markdown blockquote {
+      margin: 0.4em 0;
+      padding-left: 0.8em;
+      border-left: 3px solid #e2e8f0;
+      color: #64748b;
+    }
+    .msg.assistant.markdown a {
+      color: #2563eb;
+      text-decoration: underline;
+    }
+    .msg.assistant.markdown .assistant-html-preview {
+      margin: 0.6em 0;
+      max-width: 100%;
+      overflow-x: auto;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+    }
+    .msg.assistant.markdown .assistant-html-preview img {
+      max-width: 100%;
+      height: auto;
+    }
+    .msg.assistant.thinking {
+      color: #64748b;
+      min-width: 68px;
+    }
+    .thinking-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 18px;
+    }
+    .thinking-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #94a3b8;
+      animation: thinking-bounce 1.2s ease-in-out infinite;
+    }
+    .thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+    .thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes thinking-bounce {
+      0%, 70%, 100% { transform: translateY(0); opacity: 0.45; }
+      35% { transform: translateY(-4px); opacity: 1; }
+    }
+    .composer-wrap {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
+      background: linear-gradient(180deg, rgba(244, 248, 255, 0) 0%, rgba(244, 248, 255, 0.92) 24%, var(--composer-bg) 100%);
+      backdrop-filter: blur(8px);
+    }
+    .composer-inner {
+      max-width: 720px;
+      margin: 0 auto;
+    }
     .row {
       display: flex;
       gap: 8px;
-      margin-top: 16px;
+      align-items: center;
     }
     input[type="text"] {
       flex: 1;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 8px 10px;
+      min-width: 0;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 10px 12px;
       font: inherit;
+      font-size: 15px;
+      background: #fff;
+      min-height: 44px;
     }
     button {
-      border: 1px solid #111;
-      background: #111;
+      border: none;
+      background: #2563eb;
       color: #fff;
-      border-radius: 4px;
-      padding: 8px 14px;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 15px;
       cursor: pointer;
+      min-height: 44px;
+      flex-shrink: 0;
     }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    #status { color: #b00020; font-size: 12px; min-height: 16px; margin-top: 8px; }
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    #status {
+      color: #dc2626;
+      font-size: 12px;
+      margin: 0 auto 6px;
+      text-align: center;
+    }
+    #status:empty {
+      display: none;
+    }
   </style>
 </head>
 <body>
   <div class="wrap" data-method-key="{{ method_key }}" data-message-api="{{ message_api_url }}" data-redis-key-prefix="{{ redis_key_prefix }}">
-    <h1>{{ talk_title }}</h1>
-    {% if welcome_message %}
-    <div class="welcome" id="welcome">{{ welcome_message | safe }}</div>
-    {% endif %}
-    <div id="chat"></div>
-    <div id="status"></div>
-    <div class="row">
-      <input id="input" type="text" placeholder="输入消息" />
-      <button id="send" type="button">发送</button>
+    <main class="main">
+      {% if welcome_message %}
+      <div class="welcome" id="welcome">{{ welcome_message | safe }}</div>
+      {% endif %}
+      <div class="chat" id="chat" aria-live="polite"></div>
+    </main>
+    <div class="composer-wrap">
+      <div class="composer-inner">
+        <div id="status"></div>
+        <div class="row">
+          <input id="input" type="text" placeholder="输入消息" autocomplete="off" />
+          <button id="send" type="button">发送</button>
+        </div>
+      </div>
     </div>
   </div>
+  <script>
+{% include '_talk_markdown.js' %}
+  </script>
   <script>
     (function () {
       const root = document.querySelector('.wrap');
@@ -84,10 +267,13 @@
       const messageApi = root.dataset.messageApi;
       const redisKeyPrefix = root.dataset.redisKeyPrefix || '';
       const chat = document.getElementById('chat');
+      const main = document.querySelector('.main');
       const input = document.getElementById('input');
       const sendBtn = document.getElementById('send');
       const statusEl = document.getElementById('status');
       const initialSessionId = {{ session_id | tojson }};
+
+      let thinkingRow = null;
 
       function getSessionId() {
         if (initialSessionId) return initialSessionId;
@@ -100,20 +286,59 @@
         return id;
       }
 
-      function appendLine(role, content) {
+      function scrollChatToBottom() {
+        requestAnimationFrame(function () {
+          if (!main) return;
+          main.scrollTo({ top: main.scrollHeight, behavior: 'smooth' });
+        });
+      }
+
+      function appendMessage(role, content) {
+        const row = document.createElement('div');
+        row.className = 'msg-row ' + role;
         const div = document.createElement('div');
-        div.className = 'line ' + role;
-        div.textContent = content;
-        chat.appendChild(div);
+        div.className = 'msg ' + role;
+        if (role === 'assistant') {
+          div.classList.add('markdown');
+          div.innerHTML = renderAssistantMarkdown(content);
+        } else {
+          div.textContent = content;
+        }
+        row.appendChild(div);
+        chat.appendChild(row);
+        scrollChatToBottom();
+        return row;
+      }
+
+      function showThinkingBubble() {
+        removeThinkingBubble();
+        const row = document.createElement('div');
+        row.className = 'msg-row assistant';
+        const div = document.createElement('div');
+        div.className = 'msg assistant thinking';
+        div.setAttribute('aria-label', '思考中');
+        div.innerHTML = '<span class="thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>';
+        row.appendChild(div);
+        chat.appendChild(row);
+        thinkingRow = row;
+        scrollChatToBottom();
+      }
+
+      function removeThinkingBubble() {
+        if (thinkingRow && thinkingRow.parentNode) {
+          thinkingRow.parentNode.removeChild(thinkingRow);
+        }
+        thinkingRow = null;
       }
 
       async function sendMessage() {
         const text = input.value.trim();
         if (!text) return;
-        appendLine('user', text);
+        appendMessage('user', text);
         input.value = '';
         sendBtn.disabled = true;
         statusEl.textContent = '';
+        showThinkingBubble();
         try {
           const res = await fetch(messageApi, {
             method: 'POST',
@@ -133,11 +358,14 @@
             throw new Error(payload.msg || payload.detail || '请求失败');
           }
           const assistant = payload.data && payload.data.assistantMessage;
-          appendLine('assistant', (assistant && assistant.content) || '(无回复)');
+          removeThinkingBubble();
+          appendMessage('assistant', (assistant && assistant.content) || '(无回复)');
         } catch (err) {
+          removeThinkingBubble();
           statusEl.textContent = err.message || String(err);
         } finally {
           sendBtn.disabled = false;
+          input.focus();
         }
       }
 
