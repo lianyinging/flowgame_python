@@ -1,4 +1,5 @@
-FROM python:3.10-slim
+ARG PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -11,19 +12,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --upgrade pip \
+RUN pip config set global.index-url "${PIP_INDEX_URL}" \
+    && pip install --upgrade pip \
     && pip install -r requirements.txt
 
 COPY run.py .
 COPY src ./src
 COPY .env ./.env
 
-# 执行日志默认目录（与 FLOWGAME_EXECUTION_LOG_PATH 容器内路径对应，compose 可挂载卷）
 RUN mkdir -p /var/log/flowgame
 
 EXPOSE 8008
