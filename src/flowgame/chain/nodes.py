@@ -956,6 +956,251 @@ class MemoryReadNode(BaseNode):
         }
 
 
+class StateMachineNode(BaseNode):
+    """状态机：Redis String JSON 实体状态（write / read / delete / update）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.mode: str = "write"
+        self.namespace: str = "default"
+        self.key_template: str = "{{entityKey}}"
+        self.expire_seconds: int = 0
+        self.refresh_ttl: bool = True
+        self.default_status: str = "unknown"
+        self.fail_if_missing: bool = False
+        self.return_last_state: bool = True
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.redis.client import redis_client
+        from src.flowgame.state_context import (
+            build_state_document,
+            build_state_redis_key,
+            deep_merge_payload,
+            empty_state_result,
+            flatten_state_outputs,
+            parse_payload_value,
+            parse_state_document,
+            render_state_key_template,
+            resolve_method_key_from_chain,
+        )
+
+        base = empty_state_result()
+        if not redis_client.ping():
+            base["errorMessage"] = "Redis 不可用"
+            return base
+
+        method_key = resolve_method_key_from_chain(chain)
+        params = chain.get_parameter_values(self)
+        try:
+            entity_rendered = render_state_key_template(
+                self.key_template,
+                chain.memory,
+                params,
+                method_key=method_key,
+            )
+            redis_key = build_state_redis_key(
+                self.namespace,
+                entity_rendered,
+            )
+        except ValueError as exc:
+            base["errorMessage"] = str(exc)
+            return base
+
+        base["redisKey"] = redis_key
+        mode = (self.mode or "write").strip().lower()
+        updated_by = f"flow:{method_key}"
+
+        if mode == "read":
+            return self._execute_read(redis_client, redis_key, base)
+        if mode == "delete":
+            return self._execute_delete(redis_client, redis_key, base)
+        if mode == "update":
+            return self._execute_update(
+                chain, redis_client, redis_key, base, params, updated_by
+            )
+        return self._execute_write(
+            chain, redis_client, redis_key, base, params, updated_by
+        )
+
+    def _execute_read(
+        self, redis_client, redis_key: str, base: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        from src.flowgame.state_context import flatten_state_outputs, parse_state_document
+
+        exists = bool(redis_client.exists(redis_key))
+        base["exists"] = exists
+        if not exists:
+            if self.fail_if_missing:
+                base["errorMessage"] = "状态 Key 不存在"
+                return base
+            base["success"] = True
+            base["ttlSeconds"] = -2
+            base["status"] = self.default_status or "unknown"
+            base["payload"] = {}
+            base["state"] = {}
+            return base
+
+        raw = redis_client.get(redis_key)
+        state = parse_state_document(raw) or {}
+        flat = flatten_state_outputs(state)
+        base.update(flat)
+        base["success"] = True
+        base["ttlSeconds"] = redis_client.ttl(redis_key)
+        return base
+
+    def _execute_delete(
+        self, redis_client, redis_key: str, base: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        from src.flowgame.state_context import flatten_state_outputs, parse_state_document
+
+        exists = bool(redis_client.exists(redis_key))
+        base["exists"] = exists
+        if not exists:
+            if self.fail_if_missing:
+                base["errorMessage"] = "状态 Key 不存在"
+                return base
+            base["success"] = True
+            base["deleted"] = False
+            return base
+
+        last_state: Dict[str, Any] = {}
+        if self.return_last_state:
+            raw = redis_client.get(redis_key)
+            last_state = parse_state_document(raw) or {}
+            flat = flatten_state_outputs(last_state)
+            base["lastState"] = flat["state"]
+            base["status"] = flat["status"]
+            base["payload"] = flat["payload"]
+
+        deleted_count = redis_client.delete(redis_key)
+        base["success"] = deleted_count > 0
+        base["deleted"] = deleted_count > 0
+        return base
+
+    def _execute_write(
+        self,
+        chain: Chain,
+        redis_client,
+        redis_key: str,
+        base: Dict[str, Any],
+        params: Dict[str, Any],
+        updated_by: str,
+    ) -> Dict[str, Any]:
+        from src.flowgame.state_context import (
+            build_state_document,
+            flatten_state_outputs,
+            parse_state_document,
+        )
+
+        status = _resolve_node_param(chain, self, "status")
+        if status is None or not str(status).strip():
+            base["errorMessage"] = "write 模式 status 不能为空"
+            return base
+
+        previous = parse_state_document(redis_client.get(redis_key)) or {}
+        new_state = build_state_document(
+            status=str(status).strip(),
+            progress=_resolve_node_param(chain, self, "progress"),
+            message=_resolve_node_param(chain, self, "message"),
+            payload=_resolve_node_param(chain, self, "payload"),
+            updated_by=updated_by,
+        )
+        if not redis_client.set_json(redis_key, new_state):
+            base["errorMessage"] = "写入 Redis 失败"
+            return base
+        if self.expire_seconds > 0 and self.refresh_ttl:
+            redis_client.expire(redis_key, self.expire_seconds)
+
+        flat = flatten_state_outputs(new_state)
+        base.update(flat)
+        base["previousState"] = previous
+        base["success"] = True
+        base["exists"] = True
+        base["ttlSeconds"] = redis_client.ttl(redis_key)
+        return base
+
+    def _execute_update(
+        self,
+        chain: Chain,
+        redis_client,
+        redis_key: str,
+        base: Dict[str, Any],
+        params: Dict[str, Any],
+        updated_by: str,
+    ) -> Dict[str, Any]:
+        from src.flowgame.state_context import (
+            build_state_document,
+            deep_merge_payload,
+            flatten_state_outputs,
+            parse_payload_value,
+            parse_state_document,
+            utc_now_iso,
+        )
+
+        previous = parse_state_document(redis_client.get(redis_key))
+        exists = previous is not None
+
+        if not exists:
+            if self.fail_if_missing:
+                base["errorMessage"] = "状态 Key 不存在"
+                return base
+            status = _resolve_node_param(chain, self, "status")
+            if status is None or not str(status).strip():
+                base["errorMessage"] = "update 创建新状态时 status 不能为空"
+                return base
+            new_state = build_state_document(
+                status=str(status).strip(),
+                progress=_resolve_node_param(chain, self, "progress"),
+                message=_resolve_node_param(chain, self, "message"),
+                payload=_resolve_node_param(chain, self, "payload"),
+                updated_by=updated_by,
+            )
+            changed = ["status", "progress", "message", "payload"]
+        else:
+            new_state = dict(previous or {})
+            changed: List[str] = []
+            status = _resolve_node_param(chain, self, "status")
+            if status is not None and str(status).strip():
+                new_state["status"] = str(status).strip()
+                changed.append("status")
+            progress = _resolve_node_param(chain, self, "progress")
+            if progress is not None and str(progress).strip() != "":
+                try:
+                    new_state["progress"] = float(progress)
+                except (TypeError, ValueError):
+                    pass
+                else:
+                    changed.append("progress")
+            message = _resolve_node_param(chain, self, "message")
+            if message is not None and str(message).strip():
+                new_state["message"] = str(message).strip()
+                changed.append("message")
+            payload_raw = _resolve_node_param(chain, self, "payload")
+            if payload_raw is not None:
+                patch = parse_payload_value(payload_raw)
+                if patch:
+                    prev_payload = new_state.get("payload")
+                    new_state["payload"] = deep_merge_payload(prev_payload, patch)
+                    changed.append("payload")
+            new_state["updatedAt"] = utc_now_iso()
+            new_state["updatedBy"] = updated_by
+
+        if not redis_client.set_json(redis_key, new_state):
+            base["errorMessage"] = "更新 Redis 失败"
+            return base
+        if self.expire_seconds > 0 and self.refresh_ttl:
+            redis_client.expire(redis_key, self.expire_seconds)
+
+        flat = flatten_state_outputs(new_state)
+        base.update(flat)
+        base["previousState"] = previous or {}
+        base["changedFields"] = changed
+        base["success"] = True
+        base["exists"] = True
+        base["ttlSeconds"] = redis_client.ttl(redis_key)
+        return base
+
+
 class DatabaseNode(BaseNode):
     """数据库：入参渲染 MyBatis 风格 SQL 模板，默认 MySQL，结果 JSON 数组输出。"""
 

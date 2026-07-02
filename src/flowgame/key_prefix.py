@@ -78,6 +78,10 @@ def get_flow_context_redis_prefix() -> str:
     return f"{get_redis_key_prefix()}flow_context:"
 
 
+def get_flow_state_redis_prefix() -> str:
+    return f"{get_redis_key_prefix()}flow_state:"
+
+
 def get_kb_docs_redis_prefix() -> str:
     return f"{get_redis_key_prefix()}kb:docs:"
 

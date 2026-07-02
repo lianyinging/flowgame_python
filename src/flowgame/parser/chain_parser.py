@@ -28,6 +28,7 @@ from src.flowgame.chain.nodes import (
     StartApiNode,
     StartTalkNode,
     StartNode,
+    StateMachineNode,
     SwitchNode,
     TemplateNode,
 )
@@ -46,6 +47,7 @@ from src.flowgame.parser.base_parser import (
     get_join_any_node_default_output_defs,
     get_memory_read_default_output_defs,
     get_memory_write_default_output_defs,
+    get_state_machine_default_output_defs,
     parse_parameters,
     parse_parameters_array,
 )
@@ -64,6 +66,19 @@ def _parse_positive_int(value: Any, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return parsed if parsed > 0 else default
+
+
+def _parse_bool(value: Any, default: bool = False) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in ("true", "1", "yes"):
+        return True
+    if text in ("false", "0", "no"):
+        return False
+    return default
 
 
 class ChainParser:
@@ -85,6 +100,7 @@ class ChainParser:
             "llmapiNode": self._parse_llmapi,
             "memoryWriteNode": self._parse_memory_write,
             "memoryReadNode": self._parse_memory_read,
+            "stateMachineNode": self._parse_state_machine,
             "databaseNode": self._parse_database,
             "ossNode": self._parse_oss,
             "forkNode": self._parse_fork,
@@ -326,6 +342,23 @@ class ChainParser:
         add_output_defs(node, data)
         if not node.output_defs:
             node.output_defs = parse_parameters_array(get_memory_read_default_output_defs())
+        return node
+
+    def _parse_state_machine(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = StateMachineNode()
+        data = get_data(node_object)
+        node.mode = (data.get("mode") or "write").strip().lower()
+        node.namespace = (data.get("namespace") or "default").strip() or "default"
+        node.key_template = (data.get("keyTemplate") or "{{entityKey}}").strip() or "{{entityKey}}"
+        node.expire_seconds = _parse_positive_int(data.get("expireSeconds"), 0)
+        node.refresh_ttl = _parse_bool(data.get("refreshTtl"), True)
+        node.default_status = (data.get("defaultStatus") or "unknown").strip() or "unknown"
+        node.fail_if_missing = _parse_bool(data.get("failIfMissing"), False)
+        node.return_last_state = _parse_bool(data.get("returnLastState"), True)
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        if not node.output_defs:
+            node.output_defs = parse_parameters_array(get_state_machine_default_output_defs())
         return node
 
     def _parse_database(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):

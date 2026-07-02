@@ -23,8 +23,8 @@ def load_flowgame_dotenv() -> None:
         load_dotenv(base_env)
 
     app_env = os.environ.get("APP_ENV", "").strip().lower()
-    if app_env in ("prod", "production"):
-        return
+    if app_env == "production":
+        app_env = "prod"
     if app_env:
         env_file = root / f".env.{app_env}"
         if env_file.exists():

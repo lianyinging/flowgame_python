@@ -10,6 +10,7 @@ import pymysql
 from pymysql.cursors import DictCursor
 
 from src.flowgame.settings import get_flowgame_settings
+from src.flowgame.startup_logging import get_infra_logger
 
 
 class MySQLUtils:
@@ -34,7 +35,7 @@ class MySQLUtils:
 
     def _build_connection(self) -> pymysql.connections.Connection:
         cfg = get_flowgame_settings()
-        return pymysql.connect(
+        conn = pymysql.connect(
             host=cfg.mysql_host,
             port=cfg.mysql_port,
             user=cfg.mysql_user,
@@ -47,6 +48,32 @@ class MySQLUtils:
             write_timeout=60,
             autocommit=True,
         )
+        infra_logger = get_infra_logger()
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT @@hostname AS hostname, @@port AS port, DATABASE() AS db, USER() AS user"
+                )
+                row = cursor.fetchone() or {}
+            infra_logger.info(
+                "MySQL connected target=%s:%s db=%s -> server=%s:%s db=%s user=%s",
+                cfg.mysql_host,
+                cfg.mysql_port,
+                cfg.mysql_database or "(unset)",
+                row.get("hostname", "?"),
+                row.get("port", "?"),
+                row.get("db", "?"),
+                row.get("user", "?"),
+            )
+        except Exception as exc:
+            infra_logger.warning(
+                "MySQL connected target=%s:%s db=%s (server identity query failed: %s)",
+                cfg.mysql_host,
+                cfg.mysql_port,
+                cfg.mysql_database or "(unset)",
+                exc,
+            )
+        return conn
 
     @staticmethod
     def _is_alive(conn: pymysql.connections.Connection) -> bool:

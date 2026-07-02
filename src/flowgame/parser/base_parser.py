@@ -210,6 +210,28 @@ def get_memory_read_default_output_defs() -> List[Dict[str, Any]]:
     return MEMORY_READ_DEFAULT_OUTPUT_DEFS
 
 
+STATE_MACHINE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
+    {"name": "success", "nameDisabled": True, "dataType": "Boolean", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "exists", "nameDisabled": True, "dataType": "Boolean", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "deleted", "nameDisabled": True, "dataType": "Boolean", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "redisKey", "nameDisabled": True, "dataType": "String", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "state", "nameDisabled": True, "dataType": "Object", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "previousState", "nameDisabled": True, "dataType": "Object", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "lastState", "nameDisabled": True, "dataType": "Object", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "status", "nameDisabled": True, "dataType": "String", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "progress", "nameDisabled": True, "dataType": "Number", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "message", "nameDisabled": True, "dataType": "String", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "payload", "nameDisabled": True, "dataType": "Object", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "ttlSeconds", "nameDisabled": True, "dataType": "Number", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "changedFields", "nameDisabled": True, "dataType": "Array", "dataTypeDisabled": True, "deleteDisabled": True},
+    {"name": "errorMessage", "nameDisabled": True, "dataType": "String", "dataTypeDisabled": True, "deleteDisabled": True},
+]
+
+
+def get_state_machine_default_output_defs() -> List[Dict[str, Any]]:
+    return STATE_MACHINE_DEFAULT_OUTPUT_DEFS
+
+
 DATABASE_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
     {
         "name": "data",
