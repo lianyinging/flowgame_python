@@ -1219,6 +1219,7 @@ class DatabaseNode(BaseNode):
             "data": [],
             "rowCount": 0,
             "errorMessage": "",
+            "executedSql": "",
         }
         template = (self.sql_template or "").strip()
         if not template:
@@ -1258,12 +1259,19 @@ class DatabaseNode(BaseNode):
             result["errorMessage"] = str(exc)
             return result
 
+        from src.flowgame.chain.mybatis_sql import format_executed_sql
+        from src.flowgame.execution_logging import log_database_sql
+
+        last_executed_sql = ""
         try:
             with mysql_utils.connection() as conn:
                 with conn.cursor() as cursor:
                     last_data: List[Any] = []
                     last_row_count = 0
                     for stmt_text, stmt_binds in zip(statements, stmt_binds):
+                        last_executed_sql = format_executed_sql(
+                            stmt_text, stmt_binds, cursor=cursor
+                        )
                         cursor.execute(stmt_text, stmt_binds)
                         if _is_select_statement(stmt_text):
                             rows = cursor.fetchall() or []
@@ -1277,6 +1285,14 @@ class DatabaseNode(BaseNode):
                     result["rowCount"] = last_row_count
         except Exception as exc:
             result["errorMessage"] = str(exc)
+        finally:
+            if last_executed_sql:
+                result["executedSql"] = last_executed_sql
+                log_database_sql(
+                    node_id=self.id,
+                    node_name=self.name,
+                    sql=last_executed_sql,
+                )
         return result
 
 

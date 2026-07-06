@@ -9,7 +9,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 _LOGGER_NAME = "flowgame.execution"
+_DATABASE_SQL_LOGGER_NAME = "flowgame.database"
 _CONFIGURED = False
+_DATABASE_SQL_LOGGER_CONFIGURED = False
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -90,6 +92,29 @@ def get_execution_logger() -> logging.Logger:
     return logging.getLogger(_LOGGER_NAME)
 
 
+def get_database_sql_logger() -> logging.Logger:
+    """数据库节点最终 SQL 的控制台日志（默认开启）。"""
+    global _DATABASE_SQL_LOGGER_CONFIGURED
+    logger = logging.getLogger(_DATABASE_SQL_LOGGER_NAME)
+    if not _DATABASE_SQL_LOGGER_CONFIGURED:
+        if not _env_bool("FLOWGAME_DATABASE_SQL_LOG_ENABLED", True):
+            logger.disabled = True
+            _DATABASE_SQL_LOGGER_CONFIGURED = True
+            return logger
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+        _DATABASE_SQL_LOGGER_CONFIGURED = True
+    return logger
+
+
 def _truncate_for_log(value: Any, max_len: int = 800) -> str:
     try:
         text = json.dumps(value, ensure_ascii=False, default=str)
@@ -114,6 +139,30 @@ def log_workflow_event(
         parts.append(message)
     if extra:
         parts.append(_truncate_for_log(extra))
+    logger.info(" ".join(parts))
+
+
+def log_database_sql(
+    *,
+    node_id: Optional[str] = None,
+    node_name: Optional[str] = None,
+    sql: str,
+) -> None:
+    """数据库节点执行完成后记录最终 SQL。"""
+    label = node_name or node_id or "databaseNode"
+    console_logger = get_database_sql_logger()
+    if not getattr(console_logger, "disabled", False):
+        console_logger.info("DatabaseNode[%s] executed SQL: %s", label, sql)
+
+    logger = get_execution_logger()
+    if not logger.handlers:
+        return
+    parts = ["event=database_sql_executed"]
+    if node_id:
+        parts.append(f"nodeId={node_id}")
+    if node_name:
+        parts.append(f"nodeName={node_name}")
+    parts.append(f"sql={sql}")
     logger.info(" ".join(parts))
 
 

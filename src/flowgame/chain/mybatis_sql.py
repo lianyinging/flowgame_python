@@ -23,6 +23,79 @@ def _param_name(raw: str) -> str:
     return name.split(",")[0].strip()
 
 
+def _param_modifier(raw: str) -> str:
+    parts = [p.strip().lower() for p in (raw or "").strip().split(",") if p.strip()]
+    if len(parts) < 2:
+        return ""
+    return parts[1]
+
+
+def _parse_test_literal(raw: str) -> Any:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if (text.startswith("'") and text.endswith("'")) or (
+        text.startswith('"') and text.endswith('"')
+    ):
+        inner = text[1:-1]
+        if text[0] == "'":
+            return inner.replace("\\'", "'")
+        return inner.replace('\\"', '"')
+    lower = text.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    if re.fullmatch(r"-?\d+", text):
+        return int(text)
+    if re.fullmatch(r"-?\d+\.\d+", text):
+        return float(text)
+    return text
+
+
+def _values_equal(actual: Any, expected: Any) -> bool:
+    if actual is None and expected is None:
+        return True
+    if actual is None or expected is None:
+        return False
+    if isinstance(expected, bool) and not isinstance(actual, bool):
+        if isinstance(actual, str):
+            normalized = actual.strip().lower()
+            if normalized in ("true", "1", "yes", "on"):
+                return expected is True
+            if normalized in ("false", "0", "no", "off", ""):
+                return expected is False
+        if isinstance(actual, (int, float)) and not isinstance(actual, bool):
+            return bool(actual) == expected
+    if isinstance(expected, (int, float)) and not isinstance(expected, bool):
+        if isinstance(actual, str) and actual.strip().isdigit():
+            try:
+                return float(actual) == float(expected)
+            except ValueError:
+                pass
+    return str(actual) == str(expected)
+
+
+def _apply_bind_modifier(value: Any, modifier: str) -> Any:
+    mode = (modifier or "").strip().lower()
+    if not mode:
+        return value
+    if value is None:
+        return None
+    text = str(value)
+    if not text:
+        return text
+    if mode == "like":
+        if any(ch in text for ch in ("%", "_")):
+            return text
+        return f"%{text}%"
+    if mode == "likeleft":
+        return text if text.startswith("%") else f"%{text}"
+    if mode == "likeright":
+        return text if text.endswith("%") else f"{text}%"
+    return value
+
+
 def _is_empty(value: Any) -> bool:
     if value is None:
         return True
@@ -33,43 +106,66 @@ def _is_empty(value: Any) -> bool:
     return False
 
 
+def _eval_single_test(part: str, params: Dict[str, Any]) -> bool:
+    part = (part or "").strip()
+    if not part:
+        return True
+
+    m = re.fullmatch(r"(\w+)\s*!=\s*null", part, flags=re.IGNORECASE)
+    if m:
+        return not _is_empty(params.get(m.group(1)))
+
+    m = re.fullmatch(r"(\w+)\s*==\s*null", part, flags=re.IGNORECASE)
+    if m:
+        return _is_empty(params.get(m.group(1)))
+
+    m = re.fullmatch(r"(\w+)\s*!=\s*''", part)
+    if m:
+        value = params.get(m.group(1))
+        return not (value is None or (isinstance(value, str) and value == ""))
+
+    m = re.fullmatch(r"(\w+)\s*==\s*''", part)
+    if m:
+        value = params.get(m.group(1))
+        return value is None or (isinstance(value, str) and value == "")
+
+    m = re.fullmatch(r"(\w+)\.(size|length)\s*>\s*0", part, flags=re.IGNORECASE)
+    if m:
+        value = params.get(m.group(1))
+        return isinstance(value, (list, dict, tuple, str)) and len(value) > 0
+
+    m = re.fullmatch(r"(\w+)\s*!=\s*null\s+or\s+(\w+)\s*!=\s*''", part, flags=re.IGNORECASE)
+    if m:
+        return not _is_empty(params.get(m.group(1)))
+
+    m = re.fullmatch(
+        r"(\w+)\s*==\s*('(?:\\'|[^'])*'|\"(?:\\\"|[^\"])*\"|-?\d+(?:\.\d+)?|true|false)",
+        part,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        expected = _parse_test_literal(m.group(2))
+        return _values_equal(params.get(m.group(1)), expected)
+
+    m = re.fullmatch(
+        r"(\w+)\s*!=\s*('(?:\\'|[^'])*'|\"(?:\\\"|[^\"])*\"|-?\d+(?:\.\d+)?|true|false)",
+        part,
+        flags=re.IGNORECASE,
+    )
+    if m:
+        expected = _parse_test_literal(m.group(2))
+        return not _values_equal(params.get(m.group(1)), expected)
+
+    return False
+
+
 def _eval_test(test: str, params: Dict[str, Any]) -> bool:
     expr = (test or "").strip()
     if not expr:
         return True
 
     parts = re.split(r"\s+and\s+", expr, flags=re.IGNORECASE)
-    for part in parts:
-        part = part.strip()
-        m = re.fullmatch(r"(\w+)\s*!=\s*null", part, flags=re.IGNORECASE)
-        if m:
-            if _is_empty(params.get(m.group(1))):
-                return False
-            continue
-        m = re.fullmatch(r"(\w+)\s*==\s*null", part, flags=re.IGNORECASE)
-        if m:
-            if not _is_empty(params.get(m.group(1))):
-                return False
-            continue
-        m = re.fullmatch(r"(\w+)\s*!=\s*''", part)
-        if m:
-            value = params.get(m.group(1))
-            if value is None or (isinstance(value, str) and value == ""):
-                return False
-            continue
-        m = re.fullmatch(r"(\w+)\.(size|length)\s*>\s*0", part, flags=re.IGNORECASE)
-        if m:
-            value = params.get(m.group(1))
-            if not isinstance(value, (list, dict, tuple, str)) or len(value) == 0:
-                return False
-            continue
-        m = re.fullmatch(r"(\w+)\s*!=\s*null\s+or\s+(\w+)\s*!=\s*''", part, flags=re.IGNORECASE)
-        if m:
-            value = params.get(m.group(1))
-            if _is_empty(value):
-                return False
-            continue
-    return True
+    return all(_eval_single_test(part.strip(), params) for part in parts if part.strip())
 
 
 def _find_tag_block(text: str, tag: str, start: int = 0) -> Optional[Tuple[int, int, str, str]]:
@@ -280,12 +376,33 @@ def _extract_hash_params(sql: str, params: Dict[str, Any]) -> Tuple[str, List[An
     values: List[Any] = []
 
     def repl(match: re.Match[str]) -> str:
-        key = _param_name(match.group(1))
-        values.append(params.get(key))
+        raw = match.group(1)
+        key = _param_name(raw)
+        value = _apply_bind_modifier(params.get(key), _param_modifier(raw))
+        values.append(value)
         return "%s"
 
     rendered = _HASH_PARAM.sub(repl, sql)
     return rendered, values
+
+
+def escape_pymysql_percent_literals(sql: str) -> str:
+    """将 SQL 中非占位符的 % 转义为 %%，避免 pymysql 参数绑定时误解析。"""
+    parts: List[str] = []
+    i = 0
+    text = sql or ""
+    while i < len(text):
+        if text[i : i + 2] == "%s":
+            parts.append("%s")
+            i += 2
+            continue
+        if text[i] == "%":
+            parts.append("%%")
+            i += 1
+            continue
+        parts.append(text[i])
+        i += 1
+    return "".join(parts)
 
 
 def render_mybatis_sql(template: str, params: Dict[str, Any]) -> Tuple[str, List[Any]]:
@@ -294,7 +411,7 @@ def render_mybatis_sql(template: str, params: Dict[str, Any]) -> Tuple[str, List
     dynamic = _render_dynamic_sql(template, params, bind_values)
     with_dollar = _substitute_dollar_params(dynamic, params)
     sql, vals = _extract_hash_params(with_dollar, params)
-    return sql, bind_values + vals
+    return escape_pymysql_percent_literals(sql), bind_values + vals
 
 
 def split_sql_statements(sql: str) -> List[str]:
@@ -375,6 +492,39 @@ def split_bind_values_for_statements(
 
 def _is_select_statement(sql_text: str) -> bool:
     return sql_text.lstrip().upper().startswith("SELECT")
+
+
+def format_executed_sql(sql: str, binds: List[Any], *, cursor: Any = None) -> str:
+    """将预编译 SQL 与绑定参数格式化为可读的完整语句（仅用于日志/调试）。"""
+    if cursor is not None:
+        try:
+            raw = cursor.mogrify(sql, binds or ())
+        except Exception:
+            raw = None
+        if raw is not None:
+            if isinstance(raw, bytes):
+                return raw.decode("utf-8", errors="replace")
+            return str(raw)
+
+    from pymysql.converters import escape_item
+
+    charset = "utf8mb4"
+    parts: List[str] = []
+    bind_iter = iter(binds or [])
+    i = 0
+    text = sql or ""
+    while i < len(text):
+        if text[i : i + 2] == "%%":
+            parts.append("%")
+            i += 2
+            continue
+        if text[i : i + 2] == "%s":
+            parts.append(escape_item(next(bind_iter, None), charset))
+            i += 2
+            continue
+        parts.append(text[i])
+        i += 1
+    return "".join(parts)
 
 
 def json_safe_value(value: Any) -> Any:
