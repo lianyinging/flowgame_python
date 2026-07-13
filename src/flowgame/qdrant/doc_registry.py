@@ -67,18 +67,24 @@ def register_document(
     chunk_count: int,
     mime_type: str,
     point_ids: List[str],
+    chunking_version: Optional[str] = None,
+    parent_count: Optional[int] = None,
 ) -> Dict[str, Any]:
     client = _get_redis()
     docs_key = build_kb_docs_key(collection_name)
     points_key = build_kb_doc_points_key(collection_name, doc_id)
 
-    entry = {
+    entry: Dict[str, Any] = {
         "docId": doc_id,
         "fileName": file_name,
         "chunkCount": chunk_count,
         "mimeType": mime_type,
         "createdAt": _now_iso(),
     }
+    if chunking_version:
+        entry["chunkingVersion"] = chunking_version
+    if parent_count is not None:
+        entry["parentCount"] = parent_count
 
     docs = list_documents(collection_name)
     docs = [d for d in docs if str(d.get("docId") or "") != doc_id]

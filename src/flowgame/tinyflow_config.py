@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Protocol
 
 from openai import OpenAI
 
+from src.flowgame.qdrant.hacr_config import CHUNKING_VERSION_LLM_HACR
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -41,10 +43,11 @@ class DeepSeekLlmClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.8,
         top_p: float = 0.8,
+        model: Optional[str] = None,
     ) -> Dict[str, Any]:
         try:
             response = self._client.chat.completions.create(
-                model=self._model,
+                model=(model or self._model),
                 messages=messages,
                 temperature=temperature,
                 top_p=top_p,
@@ -99,17 +102,31 @@ def _qdrant_hit_to_document(
     question = str(meta.get("question") or "")
     answer = str(meta.get("answer") or "")
     page_content = str(payload.get("page_content") or "")
+    chunking_version = str(meta.get("chunking_version") or "")
+    parent_text = str(meta.get("parent_text") or "")
+    child_snippet = str(meta.get("child_snippet") or "")
+    section_title = str(meta.get("section_title") or "")
+    doc_id = str(meta.get("doc_id") or "")
+    parent_index = meta.get("parent_index")
+
     if source_type == "document":
         file_name = str(meta.get("file_name") or "")
         chunk_index = meta.get("chunk_index")
-        title = file_name or "文档片段"
-        if chunk_index is not None:
-            title = f"{title} #{int(chunk_index) + 1}"
-        content = page_content
+        title = section_title or file_name or "文档片段"
+        if not section_title and chunk_index is not None:
+            title = f"{file_name or '文档片段'} #{int(chunk_index) + 1}"
+        if chunking_version == CHUNKING_VERSION_LLM_HACR and parent_text:
+            content = parent_text
+            retrieval_snippet = child_snippet or page_content
+        else:
+            content = page_content
+            retrieval_snippet = page_content
     else:
         title = question
         content = page_content or answer
-    return {
+        retrieval_snippet = content
+
+    result: Dict[str, Any] = {
         "title": title,
         "content": content,
         "documentId": hit.get("id"),
@@ -118,7 +135,38 @@ def _qdrant_hit_to_document(
         "question": question,
         "answer": answer,
         "sourceType": source_type,
+        "retrievalSnippet": retrieval_snippet,
     }
+    if chunking_version:
+        result["chunkingVersion"] = chunking_version
+    if section_title:
+        result["sectionTitle"] = section_title
+    if doc_id:
+        result["docId"] = doc_id
+    if parent_index is not None:
+        try:
+            result["parentIndex"] = int(parent_index)
+        except (TypeError, ValueError):
+            pass
+    return result
+
+
+def _dedupe_hacr_document_hits(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """HACR 文档：同一 parent 只保留 score 最高的一条（输入须已按 score 降序）。"""
+    seen: set[tuple[str, Any]] = set()
+    out: List[Dict[str, Any]] = []
+    for doc in docs:
+        if doc.get("chunkingVersion") == CHUNKING_VERSION_LLM_HACR and doc.get("parentIndex") is not None:
+            key = (
+                str(doc.get("docId") or ""),
+                doc.get("parentIndex"),
+                str(doc.get("sectionTitle") or ""),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(doc)
+    return out
 
 
 class QdrantCollectionKnowledge:
@@ -154,11 +202,14 @@ class QdrantCollectionKnowledge:
 
             merged: List[Dict[str, Any]] = []
             for physical_name, kind in targets:
+                # HACR 文档库需多召回一些再按 parent 去重；单请求 limit 上限 100（PointSearchBody）
+                raw_limit = per_limit * 3 if kind == "document" else per_limit
+                search_limit = min(100, max(1, raw_limit))
                 result = qdrant_service.search_points(
                     PointSearchBody(
                         collectionName=physical_name,
                         text=query_text,
-                        limit=per_limit,
+                        limit=search_limit,
                         scoreThreshold=DEFAULT_KB_SCORE_THRESHOLD,
                     )
                 )
@@ -172,6 +223,7 @@ class QdrantCollectionKnowledge:
                     merged.append(doc)
 
             merged.sort(key=lambda item: float(item.get("score") or 0), reverse=True)
+            merged = _dedupe_hacr_document_hits(merged)
             return merged[:cap]
         except Exception as exc:
             logger.warning("Qdrant collection search failed [%s]: %s", self.collection_name, exc)

@@ -211,15 +211,16 @@ async def api_upload_qa_text(body: QaBatchUploadBody):
         raise _handle(exc) from exc
 
 
-@qdrant_router.post("/points/upload-document", response_model=ApiResponse, summary="上传 PDF/DOCX 文档并分块入库")
+@qdrant_router.post("/points/upload-document", response_model=ApiResponse, summary="上传 PDF/DOCX/Markdown 文档并分块入库")
 async def api_upload_document(
     collectionName: str = Form(..., description="集合名称"),
-    file: UploadFile = File(..., description=".pdf 或 .docx"),
+    file: UploadFile = File(..., description=".pdf、.docx 或 .md"),
+    useHacr: bool = Form(False, description="是否启用 HACR 智能分片（仅 .md，会消耗 LLM Token）"),
 ):
     try:
         raw = await file.read()
         filename = file.filename or "document"
-        data = service.upload_document_file(collectionName, filename, raw)
+        data = service.upload_document_file(collectionName, filename, raw, use_hacr=useHacr)
         chunks = data.get("importedChunks", 0)
         return _ok(f"成功导入 {chunks} 个文本块", data)
     except Exception as exc:

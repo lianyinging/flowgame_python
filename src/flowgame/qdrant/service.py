@@ -22,7 +22,14 @@ from src.flowgame.qdrant.kb_collection import (
 )
 from src.flowgame.qdrant.document_chunk import chunk_segments
 from src.flowgame.qdrant.document_parser import DocumentParseError, extract_document_segments
-from src.flowgame.qdrant.document_payload import build_document_embed_text, build_document_payload
+from src.flowgame.qdrant.document_payload import (
+    build_document_embed_text,
+    build_document_payload,
+    build_hacr_document_payload,
+    build_hacr_embed_text,
+)
+from src.flowgame.qdrant import hacr_config
+from src.flowgame.qdrant.hacr_llm_chunker import process_document
 from src.flowgame.qdrant import doc_registry
 from src.flowgame.qdrant.qa_parser import build_qa_embed_text, build_qa_payload, parse_qa_pairs
 from src.flowgame.qdrant.schemas import (
@@ -389,19 +396,42 @@ def upsert_qa_point(body: QaPointWriteBody) -> Dict[str, Any]:
 _EMBED_BATCH_SIZE = 32
 
 
-def upload_document_file(
+def _mime_type_for_filename(file_name: str) -> str:
+    ext = file_name.lower()[file_name.rfind(".") :] if "." in file_name else ""
+    if ext == ".pdf":
+        return "application/pdf"
+    if ext in (".md", ".markdown"):
+        return "text/markdown"
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _resolve_hacr_upload(filename: str, use_hacr: bool) -> bool:
+    """仅在前端显式勾选且服务端允许、文件为 Markdown 时启用 HACR。"""
+    if not use_hacr:
+        return False
+    if not hacr_config.is_hacr_server_allowed():
+        raise QdrantServiceError("服务端未启用 HACR 智能分片（FLOWGAME_HACR_ENABLED=false）")
+    if not hacr_config.is_markdown_filename(filename):
+        raise QdrantServiceError("HACR 智能分片仅支持 .md / .markdown 文件")
+    return True
+
+
+def _embed_text_batches(texts: List[str]) -> List[List[float]]:
+    all_vectors: List[List[float]] = []
+    for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+        batch = texts[start : start + _EMBED_BATCH_SIZE]
+        all_vectors.extend(embedding_module.embed_texts(batch))
+    return all_vectors
+
+
+def _upload_document_legacy(
+    *,
+    client: Any,
     collection_name: str,
+    base: str,
     filename: str,
     content: bytes,
 ) -> Dict[str, Any]:
-    client = ensure_qdrant_available()
-    try:
-        base = resolve_kb_base_from_any(collection_name)
-        name = resolve_doc_collection_name(collection_name)
-    except KbCollectionNameError as exc:
-        raise _kb_name_error(exc) from exc
-    _normalize_collection_name(name)
-
     try:
         segments = extract_document_segments(filename, content)
     except DocumentParseError as exc:
@@ -413,16 +443,12 @@ def upload_document_file(
 
     doc_id = str(uuid.uuid4())
     file_name = (filename or "document").strip() or "document"
-    ext = file_name.lower()[file_name.rfind(".") :] if "." in file_name else ""
-    mime_type = "application/pdf" if ext == ".pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    mime_type = _mime_type_for_filename(file_name)
 
     texts = [
         build_document_embed_text(text, file_name=file_name) for text, _page in chunked
     ]
-    all_vectors: List[List[float]] = []
-    for start in range(0, len(texts), _EMBED_BATCH_SIZE):
-        batch = texts[start : start + _EMBED_BATCH_SIZE]
-        all_vectors.extend(embedding_module.embed_texts(batch))
+    all_vectors = _embed_text_batches(texts)
 
     point_ids: List[str] = []
     points = []
@@ -444,7 +470,7 @@ def upload_document_file(
             )
         )
 
-    client.upsert(collection_name=name, points=points, wait=True)
+    client.upsert(collection_name=collection_name, points=points, wait=True)
     entry = doc_registry.register_document(
         base,
         doc_id=doc_id,
@@ -452,16 +478,136 @@ def upload_document_file(
         chunk_count=len(points),
         mime_type=mime_type,
         point_ids=point_ids,
+        chunking_version=hacr_config.CHUNKING_VERSION_LEGACY,
     )
     return {
-        "collectionName": name,
+        "collectionName": collection_name,
         "baseName": base,
-        "docCollection": name,
+        "docCollection": collection_name,
         "docId": doc_id,
         "fileName": file_name,
         "importedChunks": len(points),
+        "parentCount": 0,
+        "chunkingVersion": hacr_config.CHUNKING_VERSION_LEGACY,
+        "usedLlm": False,
         "document": entry,
     }
+
+
+def _upload_document_hacr(
+    *,
+    client: Any,
+    collection_name: str,
+    base: str,
+    filename: str,
+    content: bytes,
+) -> Dict[str, Any]:
+    from src.flowgame.qdrant.document_parser import MAX_DOCUMENT_BYTES
+
+    if not content:
+        raise QdrantServiceError("文件内容为空")
+    if len(content) > MAX_DOCUMENT_BYTES:
+        raise QdrantServiceError(f"文件超过 {MAX_DOCUMENT_BYTES // (1024 * 1024)}MB 限制")
+
+    file_name = (filename or "document").strip() or "document"
+    hacr_result = process_document(content, file_name=file_name)
+    if not hacr_result.chunks:
+        raise QdrantServiceError("HACR 分块后无有效文本")
+
+    doc_id = str(uuid.uuid4())
+    mime_type = _mime_type_for_filename(file_name)
+
+    texts = [
+        build_hacr_embed_text(
+            chunk.snippet,
+            file_name=file_name,
+            section_title=chunk.section_title,
+        )
+        for chunk in hacr_result.chunks
+    ]
+    all_vectors = _embed_text_batches(texts)
+
+    point_ids: List[str] = []
+    points = []
+    for index, (chunk, vector) in enumerate(zip(hacr_result.chunks, all_vectors)):
+        pid = str(uuid.uuid4())
+        point_ids.append(pid)
+        points.append(
+            qmodels.PointStruct(
+                id=pid,
+                vector=vector,
+                payload=build_hacr_document_payload(
+                    child_snippet=chunk.snippet,
+                    parent_text=chunk.parent_text,
+                    section_title=chunk.section_title,
+                    parent_index=chunk.parent_index,
+                    child_index=chunk.child_index,
+                    chunk_index=index,
+                    doc_id=doc_id,
+                    file_name=file_name,
+                    mime_type=mime_type,
+                    snippet_type=chunk.snippet_type,
+                ),
+            )
+        )
+
+    client.upsert(collection_name=collection_name, points=points, wait=True)
+    entry = doc_registry.register_document(
+        base,
+        doc_id=doc_id,
+        file_name=file_name,
+        chunk_count=len(points),
+        mime_type=mime_type,
+        point_ids=point_ids,
+        chunking_version=hacr_result.chunking_version,
+        parent_count=hacr_result.parent_count,
+    )
+    return {
+        "collectionName": collection_name,
+        "baseName": base,
+        "docCollection": collection_name,
+        "docId": doc_id,
+        "fileName": file_name,
+        "importedChunks": len(points),
+        "parentCount": hacr_result.parent_count,
+        "chunkingVersion": hacr_result.chunking_version,
+        "usedLlm": hacr_result.used_llm,
+        "document": entry,
+    }
+
+
+def upload_document_file(
+    collection_name: str,
+    filename: str,
+    content: bytes,
+    *,
+    use_hacr: bool = False,
+) -> Dict[str, Any]:
+    client = ensure_qdrant_available()
+    try:
+        base = resolve_kb_base_from_any(collection_name)
+        name = resolve_doc_collection_name(collection_name)
+    except KbCollectionNameError as exc:
+        raise _kb_name_error(exc) from exc
+    _normalize_collection_name(name)
+
+    file_name = (filename or "document").strip() or "document"
+    if _resolve_hacr_upload(file_name, use_hacr):
+        return _upload_document_hacr(
+            client=client,
+            collection_name=name,
+            base=base,
+            filename=file_name,
+            content=content,
+        )
+
+    return _upload_document_legacy(
+        client=client,
+        collection_name=name,
+        base=base,
+        filename=file_name,
+        content=content,
+    )
 
 
 def list_kb_documents(collection_name: str) -> Dict[str, Any]:

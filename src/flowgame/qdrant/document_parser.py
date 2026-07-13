@@ -1,14 +1,17 @@
-"""从 PDF / DOCX 提取纯文本。"""
+"""从 PDF / DOCX / Markdown 提取纯文本。"""
 from __future__ import annotations
 
 import logging
+import re
 from io import BytesIO
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".docx"}
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".md", ".markdown"}
 MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+
+_MD_HEADING_SPLIT = re.compile(r"(?=^#{1,6}\s)", re.MULTILINE)
 
 
 class DocumentParseError(Exception):
@@ -54,6 +57,26 @@ def _parse_docx(content: bytes) -> List[Tuple[str, Optional[int]]]:
     return [("\n".join(lines), None)]
 
 
+def _decode_text_content(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def _parse_markdown(content: bytes) -> List[Tuple[str, Optional[int]]]:
+    text = _decode_text_content(content).replace("\r\n", "\n").strip()
+    if not text:
+        return []
+
+    sections = [part.strip() for part in _MD_HEADING_SPLIT.split(text) if part.strip()]
+    if not sections:
+        return [(text, None)]
+    return [(section, None) for section in sections]
+
+
 def extract_document_segments(filename: str, content: bytes) -> List[Tuple[str, Optional[int]]]:
     if not content:
         raise DocumentParseError("文件内容为空")
@@ -62,10 +85,12 @@ def extract_document_segments(filename: str, content: bytes) -> List[Tuple[str, 
 
     ext = _extension(filename)
     if ext not in ALLOWED_DOCUMENT_EXTENSIONS:
-        raise DocumentParseError("仅支持 .pdf 与 .docx 文件")
+        raise DocumentParseError("仅支持 .pdf、.docx、.md 文件")
 
     if ext == ".pdf":
         segments = _parse_pdf(content)
+    elif ext in (".md", ".markdown"):
+        segments = _parse_markdown(content)
     else:
         segments = _parse_docx(content)
 
