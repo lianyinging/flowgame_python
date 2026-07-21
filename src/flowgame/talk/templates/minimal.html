@@ -159,6 +159,47 @@
       max-width: 100%;
       height: auto;
     }
+    .assistant-image-card {
+      margin: 0.15em 0 0.55em;
+    }
+    .assistant-image-card:last-child {
+      margin-bottom: 0;
+    }
+    .assistant-image-link {
+      display: block;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e5e7eb;
+      background: #f8fafc;
+    }
+    .assistant-image {
+      display: block;
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      vertical-align: middle;
+    }
+    .assistant-image-actions {
+      margin-top: 8px;
+      display: flex;
+      gap: 8px;
+    }
+    .assistant-image-download {
+      appearance: none;
+      border: 1px solid #c7d2fe;
+      background: #eef2ff;
+      color: #3730a3;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1;
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .assistant-image-download:active {
+      background: #e0e7ff;
+    }
     .msg.assistant.thinking {
       color: #64748b;
       min-width: 68px;
@@ -272,6 +313,7 @@
       const sendBtn = document.getElementById('send');
       const statusEl = document.getElementById('status');
       const initialSessionId = {{ session_id | tojson }};
+      bindAssistantImageDownloads(chat);
 
       let thinkingRow = null;
 

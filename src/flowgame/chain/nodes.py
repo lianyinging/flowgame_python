@@ -228,7 +228,7 @@ class StartNode(BaseNode):
 
 
 class StartTalkNode(StartNode):
-    """对话开始节点：供 GET /talk 打开对话页；执行时透出 message / sessionId 供下游引用。"""
+    """对话开始节点：供 GET /talk 打开对话页；执行时透出 message / sessionId / imgBase64List。"""
 
     def __init__(self) -> None:
         super().__init__()
@@ -245,6 +245,9 @@ class StartTalkNode(StartNode):
         session_id = chain.memory.get("sessionId")
         if session_id is not None:
             result["sessionId"] = session_id
+        img_list = chain.memory.get("imgBase64List")
+        if img_list is not None:
+            result["imgBase64List"] = img_list
         return result
 
 
@@ -422,6 +425,16 @@ class EndNode(BaseNode):
             return {}
 
         return resolve_output_by_defs(chain, self.output_defs)
+
+
+class EndApiNode(EndNode):
+    """Api 接口结束：自定义对外输出；可关闭 /execute 过程详情。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.name = "end_api"
+        # True：响应含 nodeExecutions；False：仅自定义 outputDefs
+        self.include_execution_details: bool = True
 
 
 class LlmNode(BaseNode):
@@ -1386,6 +1399,433 @@ class SearchEngineNode(BaseNode):
                 pass
         documents = self.search_engine.search(real_keyword, real_limit)
         return {"documents": documents}
+
+
+class WebSearchNode(BaseNode):
+    """多引擎网页搜索（自定义节点 webSearchNode）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.engines: List[str] = ["duckduckgo"]
+        self.keyword: Optional[str] = None
+        self.limit: Optional[str] = None
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.web.search import search_web
+
+        real_keyword = resolve_named_field(chain, self, "keyword", self.keyword)
+        if not (real_keyword or "").strip():
+            real_keyword = resolve_named_field(chain, self, "text", None)
+        real_limit = 10
+        limit_str = resolve_named_field(chain, self, "limit", self.limit)
+        if limit_str:
+            try:
+                real_limit = int(float(str(limit_str)))
+            except (TypeError, ValueError):
+                pass
+        payload = search_web(str(real_keyword or ""), self.engines, real_limit)
+        documents = payload.get("documents") or []
+        errors = payload.get("errors") or []
+        result: Dict[str, Any] = {
+            "documents": documents,
+            "errorMessage": "; ".join(str(e) for e in errors) if errors else "",
+        }
+        if documents:
+            first = documents[0]
+            if isinstance(first, dict):
+                for key in ("title", "content", "url"):
+                    if first.get(key) is not None:
+                        result[key] = first[key]
+        elif not result["errorMessage"]:
+            result["errorMessage"] = "未检索到结果"
+        return result
+
+
+class FetchUrlNode(BaseNode):
+    """抓取 URL 并抽取正文（自定义节点 fetchUrlNode）。
+
+    对齐 demo_ai_news.FetcherAgent：优先 Jina Reader，失败再 requests+strip。
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.max_chars: Optional[str] = None
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        from src.flowgame.web.fetch import DEFAULT_MAX_CHARS, fetch_url_document
+
+        real_url = resolve_named_field(chain, self, "url", None)
+        if not (real_url or "").strip():
+            # 兼容引用搜索结果其它字段名
+            real_url = resolve_named_field(chain, self, "link", None)
+        hint_title = resolve_named_field(chain, self, "title", None)
+        max_chars = DEFAULT_MAX_CHARS
+        if self.max_chars:
+            try:
+                max_chars = int(float(str(self.max_chars)))
+            except (TypeError, ValueError):
+                pass
+        return fetch_url_document(
+            str(real_url or "").strip(),
+            max_chars=max_chars,
+            hint_title=str(hint_title).strip() if hint_title else None,
+        )
+
+
+class ImageGenNode(BaseNode):
+    """图像生成：OpenAI SDK 或 DashScope 原生（自定义节点 imageGenNode）。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.provider: str = "openai"
+        self.base_url: Optional[str] = None
+        self.api_key: Optional[str] = None
+        self.model: str = "doubao-seedream-5-0-260128"
+        self.size: str = "2K"
+        self.prompt_template: Optional[str] = "{{prompt}}"
+        self.response_format: str = "url"
+        self.extra_body_json: Optional[str] = None
+        self.request_timeout_ms: int = 120000
+
+    def execute(self, chain: Chain) -> Dict[str, Any]:
+        params = chain.get_parameter_values(self)
+        prompt_value = resolve_named_field(chain, self, "prompt", None)
+        if prompt_value is not None:
+            params["prompt"] = prompt_value
+
+        template = (self.prompt_template or "{{prompt}}").strip() or "{{prompt}}"
+        prompt = format_template(template, params).strip()
+        if not prompt:
+            return self._failure("生图提示词 prompt 为空")
+
+        api_key = (self.api_key or "").strip()
+        if not api_key:
+            return self._failure("API Key 未配置")
+
+        base_url = (self.base_url or "").strip().rstrip("/")
+        if not base_url:
+            return self._failure("Base URL 未配置")
+
+        model = (self.model or "").strip()
+        if not model:
+            return self._failure("模型 model 未配置")
+
+        size = (self.size or "").strip() or None
+        extra_body = _parse_optional_json_object(self.extra_body_json)
+        timeout_sec = max(5.0, self.request_timeout_ms / 1000.0)
+        provider = (self.provider or "openai").strip().lower()
+        image_urls = self._collect_image_urls(chain, params)
+
+        try:
+            if provider in ("dashscope", "qwen", "bailian"):
+                return self._execute_dashscope(
+                    chain,
+                    prompt=prompt,
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=model,
+                    size=size,
+                    extra_body=extra_body,
+                    timeout_sec=timeout_sec,
+                    image_urls=image_urls,
+                )
+            if image_urls:
+                return self._failure(
+                    "图生图/编辑仅支持 DashScope 协议；请将「接口协议」改为 DashScope 原生"
+                )
+            return self._execute_openai(
+                chain,
+                prompt=prompt,
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                size=size,
+                extra_body=extra_body,
+                timeout_sec=timeout_sec,
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = str(exc) or "图像生成失败"
+            chain.stop_error(f"图像生成失败: {message}")
+            return self._failure(message)
+
+    def _collect_image_urls(self, chain: Chain, params: Dict[str, Any]) -> List[str]:
+        """
+        收集参考图（最多 3 张）。
+
+        imageUrl 兼容：
+        - 单张：字符串 URL / data:image/...;base64,...
+        - 多张：list / JSON 数组字符串；也可配合 imageUrl2 / imageUrl3 / images
+        """
+        urls: List[str] = []
+
+        def _blank(raw: Any) -> bool:
+            if raw is None:
+                return True
+            if isinstance(raw, (list, tuple, dict)):
+                return len(raw) == 0
+            return not str(raw).strip()
+
+        def _push(raw: Any) -> None:
+            if raw is None:
+                return
+            if isinstance(raw, (list, tuple)):
+                for item in raw:
+                    _push(item)
+                return
+            text = str(raw).strip()
+            if not text:
+                return
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                    if isinstance(parsed, list):
+                        for item in parsed:
+                            _push(item)
+                        return
+                except json.JSONDecodeError:
+                    pass
+            if "," in text and not text.startswith("data:"):
+                parts = [p.strip() for p in text.split(",") if p.strip()]
+                if len(parts) > 1 and all(
+                    p.startswith("http") or p.startswith("oss://") or p.startswith("data:")
+                    for p in parts
+                ):
+                    for p in parts:
+                        _push(p)
+                    return
+            if text not in urls:
+                urls.append(text)
+
+        for name in ("imageUrl", "imageUrl2", "imageUrl3", "images"):
+            # 优先 params：保留 list，避免 resolve_named_field 把数组 str() 成不可解析文本
+            value = params.get(name) if name in params else None
+            if _blank(value):
+                value = self._resolve_image_field_raw(chain, name)
+            _push(value)
+
+        return urls[:3]
+
+    def _resolve_image_field_raw(self, chain: Chain, name: str) -> Any:
+        """读取 imageUrl 等参数的原始值（list / str），不做 str() 强制转换。"""
+        for parameter in self.parameters or []:
+            if parameter.name != name:
+                continue
+            ref_type = parameter.ref_type or RefType.REF
+            if ref_type == RefType.FIXED:
+                return parameter.value
+            if ref_type == RefType.REF:
+                ref = parameter.ref or ""
+                value = chain.get(ref) if ref else None
+                if value is None and ref and "." in ref:
+                    value = chain.memory.get(ref.split(".")[-1])
+                if value is None and parameter.default_value is not None:
+                    return parameter.default_value
+                return value
+            if ref_type == RefType.INPUT:
+                return parameter.ref
+        return None
+
+    def _execute_openai(
+        self,
+        chain: Chain,
+        *,
+        prompt: str,
+        api_key: str,
+        base_url: str,
+        model: str,
+        size: Optional[str],
+        extra_body: Dict[str, Any],
+        timeout_sec: float,
+    ) -> Dict[str, Any]:
+        from openai import OpenAI
+
+        response_format = (self.response_format or "url").strip().lower() or "url"
+        if response_format not in ("url", "b64_json"):
+            response_format = "url"
+        body = dict(extra_body)
+        body.pop("response_format", None)
+
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_sec)
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "response_format": response_format,
+        }
+        if size:
+            kwargs["size"] = size
+        if body:
+            kwargs["extra_body"] = body
+
+        response = client.images.generate(**kwargs)
+        raw = self._response_to_dict(response)
+        urls: List[str] = []
+        b64_first = ""
+        for item in getattr(response, "data", None) or []:
+            url = getattr(item, "url", None)
+            if url:
+                urls.append(str(url))
+            b64 = getattr(item, "b64_json", None)
+            if b64 and not b64_first:
+                b64_first = str(b64)
+
+        if not urls and not b64_first:
+            return self._failure("未返回图片结果", raw)
+
+        return {
+            "success": True,
+            "url": urls[0] if urls else "",
+            "urls": urls,
+            "b64Json": b64_first,
+            "rawResponse": raw,
+            "errorMessage": "",
+        }
+
+    def _execute_dashscope(
+        self,
+        chain: Chain,
+        *,
+        prompt: str,
+        api_key: str,
+        base_url: str,
+        model: str,
+        size: Optional[str],
+        extra_body: Dict[str, Any],
+        timeout_sec: float,
+        image_urls: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        百炼原生 multimodal-generation：
+        - 无参考图：文生图
+        - 有 1-3 张 image：图生图/指令编辑（content: image* + text）
+        文档：https://help.aliyun.com/zh/model-studio/qwen-image-edit-api
+        """
+        endpoint = self._dashscope_generation_url(base_url)
+        parameters = dict(extra_body)
+        if size and "size" not in parameters:
+            parameters["size"] = size
+        # DashScope 常用宽*高；兼容误填 2K
+        if str(parameters.get("size") or "").upper() in ("1K", "2K", "4K"):
+            parameters["size"] = {
+                "1K": "1024*1024",
+                "2K": "2048*2048",
+                "4K": "2048*2048",
+            }.get(str(parameters["size"]).upper(), "2048*2048")
+
+        content: List[Dict[str, str]] = []
+        for img in (image_urls or [])[:3]:
+            content.append({"image": img})
+        content.append({"text": prompt})
+
+        payload: Dict[str, Any] = {
+            "model": model,
+            "input": {
+                "messages": [
+                    {"role": "user", "content": content},
+                ]
+            },
+        }
+        if parameters:
+            payload["parameters"] = parameters
+
+        response = requests.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=timeout_sec,
+        )
+        try:
+            raw = response.json()
+        except ValueError:
+            raw = {"_text": response.text}
+
+        if response.status_code >= 400:
+            message = _format_api_error_message(response.status_code, raw, endpoint)
+            chain.stop_error(message)
+            return self._failure(message, raw if isinstance(raw, dict) else {})
+
+        # DashScope 错误码也可能在 200 里
+        if isinstance(raw, dict) and raw.get("code") and str(raw.get("code")) not in ("", "Success"):
+            message = str(raw.get("message") or raw.get("code") or "DashScope 生图失败")
+            chain.stop_error(message)
+            return self._failure(message, raw)
+
+        urls = self._extract_dashscope_image_urls(raw if isinstance(raw, dict) else {})
+        if not urls:
+            return self._failure("未返回图片 URL", raw if isinstance(raw, dict) else {})
+
+        return {
+            "success": True,
+            "url": urls[0],
+            "urls": urls,
+            "b64Json": "",
+            "rawResponse": raw if isinstance(raw, dict) else {},
+            "errorMessage": "",
+        }
+
+    @staticmethod
+    def _dashscope_generation_url(base_url: str) -> str:
+        text = (base_url or "").strip().rstrip("/")
+        lower = text.lower()
+        if "multimodal-generation" in lower:
+            return text
+        # 允许填完整 generation 路径或仅 api/v1 根
+        if lower.endswith("/api/v1"):
+            return f"{text}/services/aigc/multimodal-generation/generation"
+        if "/api/v1/" in lower:
+            return f"{text.rstrip('/')}/services/aigc/multimodal-generation/generation"
+        return f"{text}/api/v1/services/aigc/multimodal-generation/generation"
+
+    @staticmethod
+    def _extract_dashscope_image_urls(raw: Dict[str, Any]) -> List[str]:
+        urls: List[str] = []
+        output = raw.get("output") if isinstance(raw.get("output"), dict) else {}
+        choices = output.get("choices") if isinstance(output, dict) else None
+        if not isinstance(choices, list):
+            return urls
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if not isinstance(content, list):
+                continue
+            for item in content:
+                if isinstance(item, dict) and item.get("image"):
+                    urls.append(str(item["image"]))
+        return urls
+
+    def _failure(self, message: str, raw: Any = None) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "url": "",
+            "urls": [],
+            "b64Json": "",
+            "rawResponse": raw if isinstance(raw, dict) else {},
+            "errorMessage": message,
+        }
+
+    @staticmethod
+    def _response_to_dict(response: Any) -> Dict[str, Any]:
+        model_dump = getattr(response, "model_dump", None)
+        if callable(model_dump):
+            try:
+                dumped = model_dump()
+                return dumped if isinstance(dumped, dict) else {"value": dumped}
+            except Exception:  # noqa: BLE001
+                pass
+        to_dict = getattr(response, "to_dict", None)
+        if callable(to_dict):
+            try:
+                dumped = to_dict()
+                return dumped if isinstance(dumped, dict) else {"value": dumped}
+            except Exception:  # noqa: BLE001
+                pass
+        return {"repr": repr(response)}
 
 
 def _apply_output_default(value: Any, default_value: Optional[str]) -> Any:

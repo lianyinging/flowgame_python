@@ -253,6 +253,145 @@ function renderMarkdownBlocks(text) {
   return html.join('');
 }
 
+/** 是否像图片 URL（含带签名参数的 OSS / CDN） */
+function isLikelyImageUrl(url) {
+  const u = String(url || '').trim();
+  if (!u) return false;
+  if (/^data:image\//i.test(u)) return true;
+  if (!/^https?:\/\//i.test(u)) return false;
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(u)) return true;
+  if (/\.(png|jpe?g|gif|webp|bmp|svg)(?=[?#/])/i.test(u)) return true;
+  return false;
+}
+
+function extractImageUrlsFromText(text) {
+  const raw = String(text || '');
+  const found = [];
+  const trimmed = raw.trim();
+  if (isLikelyImageUrl(trimmed)) {
+    found.push(trimmed);
+    return found;
+  }
+
+  const mdRe = /!\[[^\]]*\]\((https?:[^)\s]+)\)/gi;
+  let m;
+  while ((m = mdRe.exec(raw))) {
+    const url = String(m[1] || '').trim();
+    if (isLikelyImageUrl(url) && found.indexOf(url) === -1) found.push(url);
+  }
+
+  const urlRe = /https?:\/\/[^\s<>"'\]]+/gi;
+  while ((m = urlRe.exec(raw))) {
+    let url = m[0].replace(/[),.;!?]+$/g, '');
+    if (isLikelyImageUrl(url) && found.indexOf(url) === -1) found.push(url);
+  }
+  return found;
+}
+
+function filenameFromImageUrl(url) {
+  try {
+    const path = new URL(url, window.location.href).pathname;
+    const base = (path.split('/').pop() || 'image').split('?')[0];
+    if (/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(base)) return base;
+    return (base || 'image') + '.png';
+  } catch (e) {
+    return 'image.png';
+  }
+}
+
+function renderAssistantImageCards(urls) {
+  return urls.map(function (url) {
+    const safe = escapeHtml(url);
+    const name = escapeHtml(filenameFromImageUrl(url));
+    return (
+      '<div class="assistant-image-card">' +
+        '<a class="assistant-image-link" href="' + safe + '" target="_blank" rel="noopener noreferrer">' +
+          '<img class="assistant-image" src="' + safe + '" alt="生成图片" loading="lazy" />' +
+        '</a>' +
+        '<div class="assistant-image-actions">' +
+          '<button type="button" class="assistant-image-download" data-image-url="' + safe + '" data-image-name="' + name + '">下载图片</button>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join('');
+}
+
+function downloadAssistantImage(url, filename) {
+  const href = String(url || '').trim();
+  if (!href) return;
+  const name = String(filename || filenameFromImageUrl(href) || 'image.png');
+
+  function fallbackOpen() {
+    window.open(href, '_blank', 'noopener,noreferrer');
+  }
+
+  if (/^data:image\//i.test(href)) {
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = name;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+
+  fetch(href, { mode: 'cors', credentials: 'omit' })
+    .then(function (res) {
+      if (!res.ok) throw new Error('download failed');
+      return res.blob();
+    })
+    .then(function (blob) {
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = name;
+      a.rel = 'noopener';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(objectUrl); }, 1500);
+    })
+    .catch(fallbackOpen);
+}
+
+/** 绑定气泡内「下载图片」按钮（事件委托） */
+function bindAssistantImageDownloads(root) {
+  if (!root || root.dataset.imageDownloadBound === '1') return;
+  root.dataset.imageDownloadBound = '1';
+  root.addEventListener('click', function (e) {
+    const btn = e.target && e.target.closest
+      ? e.target.closest('.assistant-image-download')
+      : null;
+    if (!btn || !root.contains(btn)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    downloadAssistantImage(
+      btn.getAttribute('data-image-url'),
+      btn.getAttribute('data-image-name')
+    );
+  });
+}
+
+/**
+ * 若 content 是纯图片 URL / 含图片链接：渲染预览 + 下载；
+ * 其余文本仍走 Markdown。
+ */
 function renderAssistantMarkdown(content) {
-  return renderMarkdownBlocks(content);
+  const text = String(content == null ? '' : content);
+  const urls = extractImageUrlsFromText(text);
+  if (!urls.length) return renderMarkdownBlocks(text);
+
+  let remainder = text;
+  urls.forEach(function (url) {
+    remainder = remainder.split(url).join(' ');
+  });
+  remainder = remainder
+    .replace(/!\[[^\]]*\]\(\s*\)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const cards = renderAssistantImageCards(urls);
+  if (!remainder) return cards;
+  return cards + renderMarkdownBlocks(remainder);
 }

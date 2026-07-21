@@ -87,6 +87,13 @@ TALK_NODE_DEFAULT_OUTPUT_DEFS: List[Dict[str, Any]] = [
         "dataTypeDisabled": True,
         "deleteDisabled": True,
     },
+    {
+        "name": "imgBase64List",
+        "nameDisabled": True,
+        "dataType": "Array<String>",
+        "dataTypeDisabled": True,
+        "deleteDisabled": True,
+    },
 ]
 
 
@@ -490,23 +497,29 @@ def get_join_any_node_default_output_defs() -> List[Dict[str, Any]]:
 
 
 def get_end_node_output_defs_from_workflow(workflow_json: str) -> List[Dict[str, Any]]:
-    """从工作流 JSON 读取结束节点的 outputDefs。"""
+    """从工作流 JSON 读取结束节点的 outputDefs（优先 Api接口结束）。"""
     import json
 
     try:
         root = json.loads(workflow_json)
     except json.JSONDecodeError:
         return []
+
+    api_defs: List[Dict[str, Any]] = []
+    end_defs: List[Dict[str, Any]] = []
     for node_object in root.get("nodes") or []:
         if not isinstance(node_object, dict):
             continue
-        if node_object.get("type") != "endNode":
-            continue
+        ntype = node_object.get("type")
         data = get_data(node_object)
         output_defs = data.get("outputDefs")
-        if isinstance(output_defs, list) and output_defs:
-            return output_defs
-    return []
+        if not isinstance(output_defs, list) or not output_defs:
+            continue
+        if ntype == "node_end_api":
+            api_defs = output_defs
+        elif ntype == "endNode":
+            end_defs = output_defs
+    return api_defs or end_defs
 
 
 def add_output_defs(node, data: Dict[str, Any]) -> None:

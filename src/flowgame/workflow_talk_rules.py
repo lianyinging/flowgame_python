@@ -6,8 +6,9 @@ from typing import Any, Dict, List, Optional
 
 START_TALK_NODE_TYPE = "node_start_talk"
 END_NODE_TYPE = "endNode"
+END_API_NODE_TYPE = "node_end_api"
 ASSISTANT_MESSAGE_OUTPUT_NAME = "assistantMessage"
-TALK_TEMPLATES = frozenset({"default", "minimal"})
+TALK_TEMPLATES = frozenset({"default", "minimal", "image_chat"})
 
 
 def find_start_talk_data(workflow_json: str) -> Optional[Dict[str, Any]]:
@@ -24,18 +25,32 @@ def find_start_talk_data(workflow_json: str) -> Optional[Dict[str, Any]]:
 
 
 def _get_end_node_output_defs(root: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """优先 Api接口结束，其次内置结束；兼容 parameters（画布引用）与 outputDefs。"""
+    from src.flowgame.parser.base_parser import get_data
+
+    api_defs: List[Dict[str, Any]] = []
+    end_defs: List[Dict[str, Any]] = []
     for node_object in root.get("nodes") or []:
         if not isinstance(node_object, dict):
             continue
-        if node_object.get("type") != END_NODE_TYPE:
+        ntype = node_object.get("type")
+        if ntype not in (END_API_NODE_TYPE, END_NODE_TYPE):
             continue
-        from src.flowgame.parser.base_parser import get_data
-
         data = get_data(node_object)
         output_defs = data.get("outputDefs")
-        if isinstance(output_defs, list):
-            return output_defs
-    return []
+        parameters = data.get("parameters")
+        defs: List[Dict[str, Any]] = []
+        if isinstance(output_defs, list) and output_defs:
+            defs = [d for d in output_defs if isinstance(d, dict)]
+        elif isinstance(parameters, list) and parameters:
+            defs = [d for d in parameters if isinstance(d, dict)]
+        if not defs:
+            continue
+        if ntype == END_API_NODE_TYPE:
+            api_defs = defs
+        else:
+            end_defs = defs
+    return api_defs or end_defs
 
 
 def _has_assistant_message_output(root: Dict[str, Any]) -> bool:
@@ -45,8 +60,9 @@ def _has_assistant_message_output(root: Dict[str, Any]) -> bool:
         name = str(item.get("name") or "").strip()
         if name != ASSISTANT_MESSAGE_OUTPUT_NAME:
             continue
+        # 画布参数表默认常为 String；名称匹配即可（运行时仍校验 Object 结构）
         data_type = str(item.get("dataType") or "Object").strip()
-        if data_type in ("Object", ""):
+        if data_type in ("Object", "", "String"):
             return True
     return False
 
@@ -75,7 +91,7 @@ def validate_talk_start_workflow(workflow_json: str) -> None:
 
     if not _has_assistant_message_output(root):
         raise ValueError(
-            "配置了「对话开始」时，结束节点必须包含 Object 类型的 assistantMessage 输出"
+            "配置了「对话开始」时，结束节点或 Api接口结束必须包含名为 assistantMessage 的输出（引用上游 Object）"
         )
 
 

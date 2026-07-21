@@ -10,6 +10,7 @@ from src.flowgame.chain.edge import ChainEdge
 from src.flowgame.chain.nodes import (
     CodeNode,
     DatabaseNode,
+    EndApiNode,
     EndNode,
     ForkNode,
     HttpNode,
@@ -25,6 +26,9 @@ from src.flowgame.chain.nodes import (
     MemoryWriteNode,
     OssNode,
     SearchEngineNode,
+    WebSearchNode,
+    FetchUrlNode,
+    ImageGenNode,
     StartApiNode,
     StartTalkNode,
     StartNode,
@@ -93,9 +97,13 @@ class ChainParser:
             "knowledgeNodePlus": self._parse_knowledge_plus,
             "loopNode": self._parse_loop,
             "searchEngineNode": self._parse_search_engine,
+            "webSearchNode": self._parse_web_search,
+            "fetchUrlNode": self._parse_fetch_url,
+            "imageGenNode": self._parse_image_gen,
             "templateNode": self._parse_template,
             "htmlTemplateNode": self._parse_template,
             "endNode": self._parse_end,
+            "node_end_api": self._parse_end_api,
             "llmNode": self._parse_llm,
             "llmapiNode": self._parse_llmapi,
             "memoryWriteNode": self._parse_memory_write,
@@ -247,6 +255,16 @@ class ChainParser:
         node = EndNode()
         data = get_data(node_object)
         node.end_message = data.get("message")
+        add_output_defs(node, data)
+        return node
+
+    def _parse_end_api(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = EndApiNode()
+        data = get_data(node_object)
+        node.end_message = data.get("message")
+        node.include_execution_details = _parse_bool(
+            data.get("includeExecutionDetails"), True
+        )
         add_output_defs(node, data)
         return node
 
@@ -467,6 +485,42 @@ class ChainParser:
             node.search_engine = runtime.search_engine_provider.get_search_engine(
                 data.get("engine")
             )
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        return node
+
+    def _parse_web_search(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        from src.flowgame.web.search import normalize_engines
+
+        node = WebSearchNode()
+        data = get_data(node_object)
+        node.keyword = data.get("keyword")
+        node.limit = data.get("limit")
+        node.engines = normalize_engines(data.get("engines"))
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        return node
+
+    def _parse_fetch_url(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = FetchUrlNode()
+        data = get_data(node_object)
+        node.max_chars = data.get("maxChars")
+        node.set_parameters(parse_parameters(data))
+        add_output_defs(node, data)
+        return node
+
+    def _parse_image_gen(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        node = ImageGenNode()
+        data = get_data(node_object)
+        node.provider = (data.get("provider") or "openai").strip().lower()
+        node.base_url = data.get("baseUrl")
+        node.api_key = data.get("apiKey")
+        node.model = (data.get("model") or "doubao-seedream-5-0-260128").strip()
+        node.size = (data.get("size") or "2K").strip()
+        node.prompt_template = data.get("promptTemplate") or "{{prompt}}"
+        node.response_format = (data.get("responseFormat") or "url").strip().lower()
+        node.extra_body_json = data.get("extraBody")
+        node.request_timeout_ms = _parse_positive_int(data.get("requestTimeoutMs"), 120000)
         node.set_parameters(parse_parameters(data))
         add_output_defs(node, data)
         return node

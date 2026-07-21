@@ -10,7 +10,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 from src.flowgame.chain.enums import ChainStatus
-from src.flowgame.chain.nodes import StartApiNode, resolve_output_by_defs
+from src.flowgame.chain.nodes import EndApiNode, StartApiNode, resolve_output_by_defs
 from src.flowgame.chain.parameter import Parameter
 from src.flowgame.parser.base_parser import (
     get_data,
@@ -209,8 +209,17 @@ class FlowGameExecuteService:
             if progress_callback:
                 chain.progress_callback = progress_callback
             chain.execute_for_result(params)
-            response = self._collect_chain_response(chain, workflow_json)
-            logger.info("Tinyflow 执行完成 status=%s", response.get("status"))
+            # 试运行流式：始终返回完整过程详情；外部 /execute 才尊重结束节点开关
+            response = self._collect_chain_response(
+                chain,
+                workflow_json,
+                force_full_details=progress_callback is not None,
+            )
+            logger.info(
+                "Tinyflow 执行完成 status=%s includeDetails=%s",
+                response.get("status"),
+                "full" if ("nodeExecutions" in response or progress_callback) else "custom",
+            )
             log_workflow_event(
                 "workflow_finished",
                 extra={
@@ -337,9 +346,35 @@ class FlowGameExecuteService:
             params["userId"] = user_id
         return params
 
-    def _collect_chain_response(self, chain, workflow_json: str) -> Dict[str, Any]:
+    def _collect_chain_response(
+        self,
+        chain,
+        workflow_json: str,
+        *,
+        force_full_details: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        组装执行结果。
+
+        - force_full_details=True：试运行流式，始终含 nodeExecutions 等完整字段
+        - 结束节点 includeExecutionDetails=false（且非 force）：仅返回自定义输出参数
+        """
+        include_details = True if force_full_details else self._end_include_execution_details(
+            chain, workflow_json
+        )
+        end_output = self._resolve_end_node_output(
+            chain, workflow_json, custom_only=not include_details
+        )
+
+        # 外部 API：只返回结束节点自定义输出（不含 nodeExecutions / apiOutput 外壳）
+        if not include_details:
+            slim: Dict[str, Any] = {
+                key: self._sanitize_for_json(value)
+                for key, value in (end_output or {}).items()
+            }
+            return slim
+
         response: Dict[str, Any] = {}
-        end_output = self._resolve_end_node_output(chain, workflow_json)
         last_node_output = end_output or chain.execute_result
         if last_node_output:
             sanitized = {
@@ -354,7 +389,9 @@ class FlowGameExecuteService:
             response.update(api_meta)
 
         if chain.status:
-            response["status"] = chain.status.value if isinstance(chain.status, ChainStatus) else str(chain.status)
+            response["status"] = (
+                chain.status.value if isinstance(chain.status, ChainStatus) else str(chain.status)
+            )
         if chain.message:
             response["message"] = chain.message
         if chain.execution_records:
@@ -378,6 +415,39 @@ class FlowGameExecuteService:
                 for item in chain.execution_records
             ]
         return response
+
+    @staticmethod
+    def _end_include_execution_details(chain, workflow_json: str = "") -> bool:
+        """仅「Api接口结束」可关闭过程详情；内置结束节点始终输出完整详情。"""
+        for node in chain.nodes or []:
+            if isinstance(node, EndApiNode):
+                return bool(getattr(node, "include_execution_details", True))
+        # 兜底：读工作流 JSON 中的 node_end_api
+        if workflow_json:
+            try:
+                root = json.loads(workflow_json)
+            except json.JSONDecodeError:
+                return True
+            for node_object in root.get("nodes") or []:
+                if not isinstance(node_object, dict):
+                    continue
+                if node_object.get("type") != "node_end_api":
+                    continue
+                data = node_object.get("data")
+                if not isinstance(data, dict):
+                    return True
+                raw = data.get("includeExecutionDetails")
+                if raw is None or raw == "":
+                    return True
+                if isinstance(raw, bool):
+                    return raw
+                text = str(raw).strip().lower()
+                if text in ("false", "0", "no", "off"):
+                    return False
+                if text in ("true", "1", "yes", "on"):
+                    return True
+                return True
+        return True
 
     def _collect_api_start_meta(
         self, chain, workflow_json: str, end_output: Optional[Dict[str, Any]] = None
@@ -420,13 +490,21 @@ class FlowGameExecuteService:
 
         return meta
 
-    def _resolve_end_node_output(self, chain, workflow_json: str) -> Dict[str, Any]:
+    def _resolve_end_node_output(
+        self,
+        chain,
+        workflow_json: str,
+        *,
+        custom_only: bool = False,
+    ) -> Dict[str, Any]:
         output_defs_json = get_end_node_output_defs_from_workflow(workflow_json)
         if output_defs_json:
             output_defs = parse_parameters_array(output_defs_json)
             result = resolve_output_by_defs(chain, output_defs)
-            if self._has_effective_output(result):
+            if custom_only or self._has_effective_output(result):
                 return result
+        if custom_only:
+            return {}
         if chain.execute_result and isinstance(chain.execute_result, dict):
             return dict(chain.execute_result)
         return {}
@@ -514,6 +592,42 @@ class FlowGameExecuteService:
             session_id=session_id or "",
         )
 
+    @staticmethod
+    def _normalize_talk_img_base64_list(raw: Any) -> List[str]:
+        """规范化对话页上传图：最多 3 张 data URI / base64 字符串。"""
+        if raw is None:
+            return []
+        items: List[Any]
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return []
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                    items = parsed if isinstance(parsed, list) else [text]
+                except json.JSONDecodeError:
+                    items = [text]
+            else:
+                items = [text]
+        elif isinstance(raw, (list, tuple)):
+            items = list(raw)
+        else:
+            return []
+
+        urls: List[str] = []
+        for item in items:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if not text:
+                continue
+            if text not in urls:
+                urls.append(text)
+            if len(urls) >= 3:
+                break
+        return urls
+
     def execute_talk_message(
         self,
         body: Dict[str, Any],
@@ -529,10 +643,13 @@ class FlowGameExecuteService:
             raise FlowGameExecuteError("methodKey 不能为空")
 
         message = body.get("message")
-        if message is None or (isinstance(message, str) and not message.strip()):
-            raise FlowGameExecuteError("message 不能为空")
-        if not isinstance(message, str):
+        if message is not None and not isinstance(message, str):
             raise FlowGameExecuteError("message 必须为字符串")
+        message_text = (message or "").strip() if isinstance(message, str) else ""
+
+        img_base64_list = self._normalize_talk_img_base64_list(body.get("imgBase64List"))
+        if not message_text and not img_base64_list:
+            raise FlowGameExecuteError("message 与 imgBase64List 不能同时为空")
 
         session_id = body.get("sessionId")
         if session_id is not None and not isinstance(session_id, str):
@@ -555,15 +672,22 @@ class FlowGameExecuteService:
                 f"methodKey 与流程配置不一致，期望：{configured_key}"
             )
 
-        variables: Dict[str, Any] = {"message": message.strip()}
+        variables: Dict[str, Any] = {"message": message_text}
         if session_id and str(session_id).strip():
             variables["sessionId"] = str(session_id).strip()
+        if img_base64_list:
+            variables["imgBase64List"] = img_base64_list
 
         extra_vars = body.get("variables")
         if extra_vars is not None:
             if not isinstance(extra_vars, dict):
                 raise FlowGameExecuteError("variables 必须为 JSON 对象")
             variables.update(extra_vars)
+            # 允许 variables.imgBase64List 覆盖；再规范一次
+            if "imgBase64List" in variables:
+                variables["imgBase64List"] = self._normalize_talk_img_base64_list(
+                    variables.get("imgBase64List")
+                )
 
         merged_headers = self._merge_http_headers(variables, http_headers)
         result = self.execute_workflow(

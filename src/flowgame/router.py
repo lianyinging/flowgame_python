@@ -66,7 +66,15 @@ def talk_message(
     发送对话消息并执行工作流。
 
     请求体::
-        {"methodKey": "流程名称", "message": "用户输入", "sessionId": "可选", "variables": {...}}
+        {
+          "methodKey": "流程名称",
+          "message": "用户输入（可与图片二选一）",
+          "sessionId": "可选",
+          "imgBase64List": ["data:image/png;base64,..."],
+          "variables": {}
+        }
+
+    imgBase64List 最多 3 张；图生图对话模板（image_chat）会在前端转 base64 后传入。
 
     响应 data 含 assistantMessage: {"role": "assistant", "content": "..."}
     """
@@ -108,7 +116,10 @@ def execute_flow(
     管理端调试::
         {"workflow": {...tinyflow.getData()...}, "variables": {...}}
 
-    响应 data：apiOutput / endNodeOutput、lastNodeOutput、nodeExecutions（各节点执行详情）、methodKey、status 等
+    响应 data（默认）：apiOutput / endNodeOutput、lastNodeOutput、nodeExecutions、methodKey、status 等。
+
+    若流程使用「Api接口结束」并关闭「输出过程详情」，则 data 仅为自定义输出参数（不含 nodeExecutions）。
+    试运行请用 /execute/stream，始终返回完整过程详情，不受该开关影响。
     """
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="请求体必须是 JSON 对象")
@@ -122,12 +133,18 @@ def execute_flow(
     except FlowGameExecuteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    api_output = result.get("apiOutput") or result.get("lastNodeOutput") or {}
-    has_outputs = isinstance(api_output, dict) and len(api_output) > 0
+    # 完整模式：看 apiOutput / endNodeOutput；精简模式：data 本身即自定义输出
+    if isinstance(result, dict) and (
+        "apiOutput" in result or "endNodeOutput" in result or "nodeExecutions" in result
+    ):
+        payload = result.get("apiOutput") or result.get("endNodeOutput") or result.get("lastNodeOutput") or {}
+    else:
+        payload = result if isinstance(result, dict) else {}
+    has_outputs = isinstance(payload, dict) and len(payload) > 0
     msg = (
         "执行成功"
         if has_outputs
-        else "执行成功，当前无输出（请检查 Api接口开始 节点 output 引用配置）"
+        else "执行成功，当前无输出（请检查结束节点自定义输出，或 Api接口开始 的 output 配置）"
     )
     return FlowGameExecuteResponse(code=200, msg=msg, data=result)
 
