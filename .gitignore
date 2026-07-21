@@ -11,6 +11,7 @@ dist/
 build/
 model/
 logs/
+docs/
 
 # 本地文档 / IDE / 工具（不提交）
 npm发布流程.md
