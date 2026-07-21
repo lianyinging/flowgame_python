@@ -9,8 +9,29 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# py-mini-racer 原生库缺失时置为 False，后续直接走备选引擎
+# mini-racer 状态：None=未探测, True=可用, False=环境级不可用（硬熔断，进程内不再尝试）
 _MINI_RACER_USABLE: Optional[bool] = None
+# 连续「不明异常」次数，达到阈值后硬熔断（避免偶发抖动误杀）
+_MINI_RACER_UNKNOWN_FAILS: int = 0
+_MINI_RACER_UNKNOWN_FAIL_THRESHOLD: int = 3
+
+# 原生库 / 环境不可用的典型信息（硬熔断）
+_NATIVE_FAIL_MARKERS = (
+    "libmini_racer",
+    "mini_racer",
+    "cannot open shared object",
+    "dlopen",
+    "dylib",
+    "undefined symbol",
+    "image not found",
+    "no such file",
+    "failed to load",
+    "wrong elf class",
+)
+
+
+class JsBusinessError(RuntimeError):
+    """用户 JS 业务/语法错误：不应触发引擎熔断。"""
 
 
 def _bindings_from_chain_memory(memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -58,6 +79,67 @@ def ensure_json_serializable(value: Any) -> Any:
     return str(value)
 
 
+def _is_native_or_env_failure(exc: BaseException) -> bool:
+    """引擎/原生库不可用（应硬熔断）。"""
+    if isinstance(exc, (ImportError, OSError, MemoryError)):
+        return True
+    name = type(exc).__name__
+    if name in {"JSEvalException", "JSParseException", "JsBusinessError"}:
+        return False
+    text = f"{name}: {exc}".lower()
+    return any(marker in text for marker in _NATIVE_FAIL_MARKERS)
+
+
+def _is_js_business_failure(exc: BaseException) -> bool:
+    """用户脚本语法/运行错误（不应熔断）。"""
+    if isinstance(exc, JsBusinessError):
+        return True
+    name = type(exc).__name__
+    if name in {"JSEvalException", "JSParseException"}:
+        return True
+    # mini-racer 有时把 JS 错包成普通 Exception，靠文案识别常见模式
+    text = str(exc).lower()
+    business_markers = (
+        "syntaxerror",
+        "referenceerror",
+        "typeerror",
+        "rangeerror",
+        "urierror",
+        "evalerror",
+        "is not defined",
+        "unexpected token",
+        "unexpected end",
+    )
+    if any(m in text for m in business_markers) and not _is_native_or_env_failure(exc):
+        return True
+    return False
+
+
+def _mark_mini_racer_dead(reason: str) -> None:
+    global _MINI_RACER_USABLE, _MINI_RACER_UNKNOWN_FAILS
+    _MINI_RACER_USABLE = False
+    _MINI_RACER_UNKNOWN_FAILS = 0
+    logger.warning("py-mini-racer 硬熔断，后续改用 Node.js/Python 备选: %s", reason)
+
+
+def _note_mini_racer_unknown_failure(exc: BaseException) -> bool:
+    """
+    记录不明异常。返回 True 表示已达到阈值并硬熔断。
+    """
+    global _MINI_RACER_UNKNOWN_FAILS
+    _MINI_RACER_UNKNOWN_FAILS += 1
+    logger.warning(
+        "py-mini-racer 异常（%s/%s，暂不永久熔断）: %s",
+        _MINI_RACER_UNKNOWN_FAILS,
+        _MINI_RACER_UNKNOWN_FAIL_THRESHOLD,
+        exc,
+    )
+    if _MINI_RACER_UNKNOWN_FAILS >= _MINI_RACER_UNKNOWN_FAIL_THRESHOLD:
+        _mark_mini_racer_dead(f"连续不明异常达 {_MINI_RACER_UNKNOWN_FAIL_THRESHOLD} 次: {exc}")
+        return True
+    return False
+
+
 def _eval_with_mini_racer(code: str, bindings: Dict[str, Any]) -> Any:
     from py_mini_racer import py_mini_racer
 
@@ -88,9 +170,14 @@ def _eval_with_node(code: str, bindings: Dict[str, Any]) -> Any:
 const fs = require('fs');
 const { bindings, userCode } = JSON.parse(fs.readFileSync(0, 'utf8'));
 for (const [k, v] of Object.entries(bindings)) globalThis[k] = v;
-const result = eval(userCode);
-const out = { ok: true, result: result === undefined ? null : result };
-console.log(JSON.stringify(out));
+try {
+  const result = eval(userCode);
+  const out = { ok: true, result: result === undefined ? null : result };
+  console.log(JSON.stringify(out));
+} catch (e) {
+  const out = { ok: false, error: String(e && e.stack ? e.stack : e) };
+  console.log(JSON.stringify(out));
+}
 """
     payload = json.dumps(
         {"bindings": bindings, "userCode": code},
@@ -112,7 +199,7 @@ console.log(JSON.stringify(out));
     except (json.JSONDecodeError, IndexError) as exc:
         raise RuntimeError(f"node 返回无法解析: {proc.stdout!r}") from exc
     if not payload.get("ok"):
-        raise RuntimeError(str(payload.get("error") or "node 执行失败"))
+        raise JsBusinessError(str(payload.get("error") or "node 执行失败"))
     return payload.get("result")
 
 
@@ -132,7 +219,7 @@ def _eval_as_python(code: str, bindings: Dict[str, Any]) -> Any:
 
 
 def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> Any:
-    global _MINI_RACER_USABLE
+    global _MINI_RACER_USABLE, _MINI_RACER_UNKNOWN_FAILS
     bindings = _bindings_from_chain_memory(memory, extra)
     stripped = (code or "").strip()
     if not stripped:
@@ -142,27 +229,34 @@ def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = No
         try:
             result = ensure_json_serializable(_eval_with_mini_racer(stripped, bindings))
             _MINI_RACER_USABLE = True
+            _MINI_RACER_UNKNOWN_FAILS = 0
             return result
-        except ImportError as exc:
-            _MINI_RACER_USABLE = False
-            logger.warning("py-mini-racer 未安装，动态代码将使用备选引擎: %s", exc)
         except Exception as exc:
-            _MINI_RACER_USABLE = False
-            logger.warning(
-                "py-mini-racer 不可用（%s），动态代码将使用 Node.js 或 Python 备选",
-                exc,
-            )
+            if _is_js_business_failure(exc):
+                # 业务/语法错误：不熔断，直接失败当前节点
+                raise JsBusinessError(f"JavaScript 执行失败: {exc}") from exc
+            if _is_native_or_env_failure(exc):
+                _mark_mini_racer_dead(str(exc))
+            else:
+                # 不明异常：累计后硬熔断；本请求继续尝试备选引擎
+                _note_mini_racer_unknown_failure(exc)
 
+    node_exc: Optional[BaseException] = None
     if shutil.which("node"):
         try:
             return ensure_json_serializable(_eval_with_node(stripped, bindings))
+        except JsBusinessError:
+            raise
         except Exception as exc:
+            node_exc = exc
             logger.warning("Node.js 执行动态代码失败: %s", exc)
 
     if _looks_like_javascript(stripped):
+        detail = f" Node 错误: {node_exc}" if node_exc else ""
         raise RuntimeError(
-            "JavaScript 动态代码执行失败：py-mini-racer 不可用，且 Node.js 备选执行失败。"
+            "JavaScript 动态代码执行失败：py-mini-racer 不可用或已熔断，且 Node.js 备选执行失败。"
             "请检查容器内 Node.js 是否可用，或修复 py-mini-racer 原生库。"
+            f"{detail}"
         )
 
     try:

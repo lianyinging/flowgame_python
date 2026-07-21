@@ -11,8 +11,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# build-essential：编译部分 Python 包
+# curl：健康检查/调试
+# nodejs：codeNode 的 JS 备选引擎（py-mini-racer 在 slim 镜像中易失效后可回退）
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential curl \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        nodejs \
+    && node -v \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
