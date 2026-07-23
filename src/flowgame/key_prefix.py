@@ -1,4 +1,10 @@
-"""Redis / Qdrant 命名空间前缀（环境变量 + 请求头可选，用于多项目隔离共享实例）。"""
+"""Redis / Qdrant 命名空间前缀。
+
+优先级：
+1. 后端环境变量已配置（非空）→ 强制用后端值（前端须与之对应）
+2. 否则用请求头（前端 configureFlowGameClient / VITE_* 启动配置）
+3. 都没有 → 内置默认 flow_game: / flowgame_
+"""
 from __future__ import annotations
 
 import os
@@ -32,13 +38,20 @@ def normalize_qdrant_kb_prefix(raw: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def _env_redis_key_prefix() -> str:
-    return normalize_redis_key_prefix(os.getenv("FLOWGAME_REDIS_KEY_PREFIX", ""))
+def _env_redis_key_prefix_configured() -> Optional[str]:
+    """仅当环境变量显式配置时返回规范化前缀，否则 None。"""
+    raw = (os.getenv("FLOWGAME_REDIS_KEY_PREFIX") or "").strip()
+    if not raw:
+        return None
+    return normalize_redis_key_prefix(raw)
 
 
 @lru_cache(maxsize=1)
-def _env_qdrant_kb_prefix() -> str:
-    return normalize_qdrant_kb_prefix(os.getenv("FLOWGAME_QDRANT_KB_PREFIX", ""))
+def _env_qdrant_kb_prefix_configured() -> Optional[str]:
+    raw = (os.getenv("FLOWGAME_QDRANT_KB_PREFIX") or "").strip()
+    if not raw:
+        return None
+    return normalize_qdrant_kb_prefix(raw)
 
 
 def bind_request_key_prefixes(
@@ -57,17 +70,23 @@ def clear_request_key_prefixes() -> None:
 
 
 def get_redis_key_prefix() -> str:
+    locked = _env_redis_key_prefix_configured()
+    if locked:
+        return locked
     override = _REQUEST_REDIS_KEY_PREFIX.get()
     if override:
         return override
-    return _env_redis_key_prefix()
+    return DEFAULT_REDIS_KEY_PREFIX
 
 
 def get_qdrant_kb_prefix() -> str:
+    locked = _env_qdrant_kb_prefix_configured()
+    if locked:
+        return locked
     override = _REQUEST_QDRANT_KB_PREFIX.get()
     if override:
         return override
-    return _env_qdrant_kb_prefix()
+    return DEFAULT_QDRANT_KB_PREFIX
 
 
 def get_flow_list_redis_prefix() -> str:
@@ -91,5 +110,5 @@ def get_kb_doc_points_redis_prefix() -> str:
 
 
 def clear_key_prefix_cache() -> None:
-    _env_redis_key_prefix.cache_clear()
-    _env_qdrant_kb_prefix.cache_clear()
+    _env_redis_key_prefix_configured.cache_clear()
+    _env_qdrant_kb_prefix_configured.cache_clear()

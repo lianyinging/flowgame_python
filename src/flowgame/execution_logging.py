@@ -130,11 +130,34 @@ def log_workflow_event(
     *,
     message: Optional[str] = None,
     extra: Optional[dict[str, Any]] = None,
+    flow_name: Optional[str] = None,
+    method_key: Optional[str] = None,
 ) -> None:
     logger = get_execution_logger()
     if not logger.handlers:
         return
-    parts = [f"event={event}"]
+
+    label = (flow_name or method_key or "").strip() or "(未命名流程)"
+    mk = (method_key or "").strip()
+
+    # 开始/结束/错误：醒目分隔线，便于 Team 多流程交替时辨认
+    if event in ("workflow_started", "workflow_finished", "workflow_error"):
+        if event == "workflow_started":
+            mark = "▶ START"
+        elif event == "workflow_finished":
+            mark = "■ END  "
+        else:
+            mark = "✖ ERROR"
+        banner = (
+            f"========== {mark} | 流程={label}"
+            + (f" | methodKey={mk}" if mk and mk != label else "")
+            + " =========="
+        )
+        logger.info(banner)
+
+    parts = [f"event={event}", f"flowName={label}"]
+    if mk:
+        parts.append(f"methodKey={mk}")
     if message:
         parts.append(message)
     if extra:

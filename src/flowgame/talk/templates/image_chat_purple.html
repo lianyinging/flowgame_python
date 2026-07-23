@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>{{ talk_title }}</title>
+<style>
+  :root {
+    --violet: #7C3AED;
+    --violet-2: #A855F7;
+    --violet-deep: #5B21B6;
+    --ink: #241A38;
+    --muted: #8E83A8;
+    --card: rgba(255, 255, 255, 0.94);
+    --screen-top: #F1E8FF;
+    --screen-mid: #F6EBFF;
+    --screen-bot: #FCE9F6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    touch-action: manipulation;
+  }
+
+  .scene {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: clamp(28px, 5vh, 56px) 16px 56px;
+    background:
+      radial-gradient(52% 38% at 18% 30%, rgba(139, 168, 235, 0.55) 0%, rgba(139, 168, 235, 0) 70%),
+      radial-gradient(48% 36% at 82% 34%, rgba(249, 178, 214, 0.6) 0%, rgba(249, 178, 214, 0) 70%),
+      radial-gradient(60% 42% at 50% 88%, rgba(167, 139, 250, 0.5) 0%, rgba(167, 139, 250, 0) 72%),
+      linear-gradient(180deg, #C4D9F2 0%, #DFD5EF 30%, #F2D6E8 52%, #DECBF3 76%, #CDBDF0 100%);
+    isolation: isolate;
+  }
+  .waves {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  .title {
+    font-size: clamp(34px, 5.4vw, 58px);
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    color: #221A3C;
+    text-shadow: 0 2px 0 rgba(255, 255, 255, 0.35);
+    margin-bottom: clamp(22px, 4vh, 44px);
+    animation: rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .phone {
+    position: relative;
+    /* 以视口高度锁定外壳，避免 Chrome 下内容把 aspect-ratio 盒子撑高 */
+    --phone-max-h: min(668px, calc(100dvh - 160px));
+    height: var(--phone-max-h);
+    width: min(326px, 84vw, calc(var(--phone-max-h) * 326 / 668));
+    aspect-ratio: 326 / 668;
+    max-height: var(--phone-max-h);
+    overflow: hidden;
+    flex: none;
+    background: linear-gradient(150deg, #43434C 0%, #141418 42%, #2B2B33 100%);
+    border-radius: 54px;
+    padding: 11px;
+    box-shadow:
+      0 50px 90px -24px rgba(64, 24, 110, 0.5),
+      0 16px 32px rgba(40, 16, 80, 0.35),
+      inset 0 1px 1px rgba(255, 255, 255, 0.35);
+    animation: rise 1s 0.12s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .phone::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    pointer-events: none;
+  }
+  .pbtn {
+    position: absolute;
+    width: 3px;
+    border-radius: 3px;
+    background: #0c0c10;
+    box-shadow: inset 0 0 1px rgba(255, 255, 255, 0.4);
+  }
+  .pbtn--mute  { left: -2px; top: 108px; height: 26px; }
+  .pbtn--volup { left: -2px; top: 152px; height: 48px; }
+  .pbtn--voldn { left: -2px; top: 208px; height: 48px; }
+  .pbtn--power { right: -2px; top: 172px; height: 72px; }
+
+  .screen {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    border-radius: 43px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, var(--screen-top) 0%, var(--screen-mid) 46%, var(--screen-bot) 100%);
+  }
+  .island {
+    position: absolute;
+    top: 11px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 76px;
+    height: 22px;
+    border-radius: 999px;
+    background: #0B0B0E;
+    z-index: 30;
+  }
+  .statusbar {
+    flex: none;
+    height: 44px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 0 26px 6px 30px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #352A50;
+  }
+  .statusbar__icons { display: flex; align-items: center; gap: 5px; }
+
+  .main {
+    flex: 1;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 14px 16px;
+    scrollbar-width: none;
+  }
+  .main::-webkit-scrollbar { display: none; }
+
+  .welcome-panel {
+    width: 100%;
+    margin: 0 0 8px;
+    white-space: normal;
+    line-height: normal;
+    word-break: normal;
+  }
+  .welcome-panel > * { max-width: 100%; }
+
+  .chat {
+    display: flex;
+    flex-direction: column;
+    min-height: 40px;
+  }
+
+  .msg-row {
+    display: flex;
+    margin-top: 14px;
+    animation: msg-in 0.4s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-row.assistant { justify-content: flex-start; }
+  .msg {
+    max-width: 80%;
+    padding: 10px 13px;
+    font-size: 13px;
+    line-height: 1.7;
+    border-radius: 16px;
+    box-shadow: 0 3px 10px rgba(88, 48, 150, 0.1);
+    word-break: break-word;
+  }
+  .msg.user {
+    background: #fff;
+    color: var(--ink);
+    border-bottom-right-radius: 5px;
+  }
+  .msg.assistant {
+    background: #fff;
+    color: var(--ink);
+    border-bottom-left-radius: 5px;
+  }
+  .msg.assistant.markdown { white-space: normal; }
+  .msg.assistant.markdown p { margin: 0 0 0.55em; }
+  .msg.assistant.markdown p:last-child { margin-bottom: 0; }
+  .msg.assistant.markdown ul,
+  .msg.assistant.markdown ol { margin: 0.35em 0 0.55em; padding-left: 1.2em; }
+  .msg.assistant.markdown li { margin: 0.15em 0; }
+  .msg.assistant.markdown pre {
+    margin: 0.45em 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #f1f5f9;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.assistant.markdown code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.92em;
+    background: #f1f5f9;
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+  }
+  .msg.assistant.markdown pre code { background: transparent; padding: 0; }
+  .msg.assistant.markdown a { color: var(--violet-deep); text-decoration: underline; }
+  .msg.assistant.markdown .assistant-html-preview {
+    margin: 0.5em 0;
+    max-width: 100%;
+    overflow-x: auto;
+    border-radius: 10px;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+  }
+  .msg.assistant.markdown .assistant-html-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+  .assistant-image-card { margin: 0.15em 0 0.45em; }
+  .assistant-image-card:last-child { margin-bottom: 0; }
+  .assistant-image-link {
+    display: block;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+    background: #f8fafc;
+  }
+  .assistant-image {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    vertical-align: middle;
+  }
+  .assistant-image-actions { margin-top: 8px; display: flex; gap: 8px; }
+  .assistant-image-download {
+    appearance: none;
+    border: 1px solid #e9d5ff;
+    background: #f5f3ff;
+    color: #5b21b6;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 7px 11px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .msg.user .user-imgs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .msg.user .user-imgs:empty { display: none; }
+  .msg.user .user-imgs img {
+    width: 88px;
+    height: 88px;
+    object-fit: cover;
+    border-radius: 10px;
+    display: block;
+    background: #f3eef9;
+  }
+  .msg.user .user-text:empty { display: none; }
+  .msg.assistant.thinking { color: var(--muted); min-width: 64px; }
+
+  .thinking-dots {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    height: 18px;
+  }
+  .thinking-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #B79FDB;
+    animation: bounce 1.15s ease-in-out infinite;
+  }
+  .thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+  .thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes bounce {
+    0%, 70%, 100% { transform: translateY(0); opacity: 0.4; }
+    35% { transform: translateY(-4px); opacity: 1; }
+  }
+
+  .composer-wrap {
+    flex: none;
+    position: relative;
+    z-index: 20;
+    padding: 10px 10px 18px;
+    background: linear-gradient(180deg, rgba(252, 233, 246, 0.72) 0%, var(--screen-bot) 28%, var(--screen-bot) 100%);
+  }
+  .status {
+    min-height: 0;
+    margin: 0 2px 6px;
+    font-size: 11px;
+    color: #dc2626;
+    text-align: center;
+  }
+  .status:empty { display: none; }
+  .attach-thumbs {
+    display: none;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 0 2px 8px;
+  }
+  .attach-thumbs.has-items { display: flex; }
+  .attach-thumb {
+    position: relative;
+    width: 52px;
+    height: 52px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #e2e8f0;
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+  }
+  .attach-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .attach-thumb__remove {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.72);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .composer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-btn {
+    flex: none;
+    width: 37px;
+    height: 37px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.9);
+    color: #7E6FA3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(96, 52, 160, 0.12);
+    transition: transform 0.15s ease, color 0.15s ease;
+  }
+  .icon-btn:hover { color: var(--violet); }
+  .icon-btn:active { transform: scale(0.92); }
+  .icon-btn.is-active { color: var(--violet); background: rgba(124, 58, 237, 0.12); }
+  .icon-btn svg { width: 18px; height: 18px; }
+  .composer__input {
+    flex: 1;
+    min-width: 0;
+    height: 37px;
+    border: none;
+    outline: none;
+    border-radius: 999px;
+    padding: 0 15px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 3px 10px rgba(96, 52, 160, 0.1);
+  }
+  .composer__input::placeholder { color: #AC9FC6; font-size: 11.5px; }
+  .composer__input:focus { box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.35), 0 3px 10px rgba(96, 52, 160, 0.1); }
+  .send-btn {
+    flex: none;
+    width: 37px;
+    height: 37px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(145deg, var(--violet-2), var(--violet));
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 6px 14px rgba(124, 58, 237, 0.4);
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .send-btn:active { transform: scale(0.9); }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .send-btn svg { width: 16px; height: 16px; }
+  .home-indicator {
+    position: absolute;
+    bottom: 7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 104px;
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(36, 26, 56, 0.55);
+    z-index: 30;
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(26px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes msg-in {
+    from { opacity: 0; transform: translateY(12px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+  @media (max-height: 760px) {
+    .scene { padding-top: 22px; }
+    .title { margin-bottom: 18px; }
+    .phone { --phone-max-h: min(668px, calc(100dvh - 120px)); }
+  }
+</style>
+</head>
+<body>
+<div
+  class="scene"
+  data-method-key="{{ method_key }}"
+  data-message-api="{{ message_api_url }}"
+  data-redis-key-prefix="{{ redis_key_prefix }}"
+>
+  <svg class="waves" viewBox="0 0 1440 900" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="wg1" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.9" />
+        <stop offset="0.5" stop-color="#F6CFE8" stop-opacity="0.75" />
+        <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.35" />
+      </linearGradient>
+      <linearGradient id="wg2" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#A9C2F2" stop-opacity="0.65" />
+        <stop offset="0.55" stop-color="#E9B8EC" stop-opacity="0.7" />
+        <stop offset="1" stop-color="#C9B0F0" stop-opacity="0.5" />
+      </linearGradient>
+      <linearGradient id="wg3" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#8FA8E8" stop-opacity="0.55" />
+        <stop offset="0.5" stop-color="#C9A6EE" stop-opacity="0.75" />
+        <stop offset="1" stop-color="#F0B7DD" stop-opacity="0.6" />
+      </linearGradient>
+      <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.65" />
+        <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+      </radialGradient>
+      <filter id="soft30"><feGaussianBlur stdDeviation="26" /></filter>
+      <filter id="soft14"><feGaussianBlur stdDeviation="12" /></filter>
+    </defs>
+    <g filter="url(#soft30)">
+      <path fill="url(#wg2)" d="M-40,470 C240,380 460,520 760,470 C1060,420 1260,340 1480,400 L1480,940 L-40,940 Z" />
+    </g>
+    <g filter="url(#soft30)">
+      <path fill="url(#wg3)" d="M-40,560 C260,480 520,600 840,545 C1160,490 1320,520 1480,470 L1480,940 L-40,940 Z" />
+    </g>
+    <g filter="url(#soft14)">
+      <path fill="url(#wg1)" d="M-40,430 C220,350 430,470 730,430 C1030,390 1230,310 1480,365 L1480,560 C1240,610 1020,520 740,555 C460,590 220,520 -40,580 Z" />
+    </g>
+    <path fill="none" stroke="#FFFFFF" stroke-opacity="0.55" stroke-width="2.5" stroke-linecap="round"
+      d="M-40,428 C220,348 430,468 730,428 C1030,388 1230,308 1480,363">
+      <animate attributeName="d" dur="9s" repeatCount="indefinite" calcMode="spline"
+        keySplines="0.4 0 0.6 1; 0.4 0 0.6 1; 0.4 0 0.6 1"
+        values="M-40,428 C220,348 430,468 730,428 C1030,388 1230,308 1480,363;
+                M-40,440 C220,372 430,446 730,444 C1030,368 1230,330 1480,348;
+                M-40,418 C220,334 430,484 730,416 C1030,402 1230,296 1480,376;
+                M-40,428 C220,348 430,468 730,428 C1030,388 1230,308 1480,363" />
+    </path>
+    <ellipse cx="720" cy="806" rx="430" ry="86" fill="url(#glow)" filter="url(#soft30)" />
+  </svg>
+
+  <h1 class="title">{{ talk_title }}</h1>
+
+  <div class="phone">
+    <span class="pbtn pbtn--mute"></span>
+    <span class="pbtn pbtn--volup"></span>
+    <span class="pbtn pbtn--voldn"></span>
+    <span class="pbtn pbtn--power"></span>
+    <div class="screen">
+      <div class="island"></div>
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="statusbar__icons">
+          <svg width="15" height="11" viewBox="0 0 15 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx="0.8"/><rect x="4" y="4.5" width="3" height="6.5" rx="0.8"/><rect x="8" y="2" width="3" height="9" rx="0.8"/><rect x="12" y="0" width="3" height="11" rx="0.8" opacity="0.35"/></svg>
+          <svg width="15" height="11" viewBox="0 0 16 12" fill="currentColor"><path d="M8 9.6a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM8 5.4c-1.9 0-3.6.75-4.86 1.97l1.55 1.55A4.8 4.8 0 0 1 8 7.5c1.27 0 2.42.5 3.28 1.32l1.55-1.55A6.83 6.83 0 0 0 8 5.4zM8 1C4.9 0 2.02 1.2 0 3.24l1.55 1.55A9.1 9.1 0 0 1 8 3c2.52 0 4.8 1.02 6.45 2.67L16 4.12A11.08 11.08 0 0 0 8 1z" transform="translate(0 -1)"/></svg>
+          <svg width="22" height="11" viewBox="0 0 25 12" fill="none" stroke="currentColor"><rect x="0.5" y="0.5" width="20" height="11" rx="3"/><rect x="2.5" y="2.5" width="13" height="7" rx="1.5" fill="currentColor" stroke="none"/><path d="M23 4v4a2 2 0 0 0 0-4z" fill="currentColor" stroke="none"/></svg>
+        </span>
+      </div>
+
+      <main class="main" id="mainScroll" aria-live="polite">
+        {% if welcome_message %}
+        <div class="welcome-panel" id="welcome">{{ welcome_message | safe }}</div>
+        {% endif %}
+        <section class="chat" id="chat"></section>
+      </main>
+
+      <div class="composer-wrap">
+        <div class="status" id="status"></div>
+        <div class="attach-thumbs" id="attachThumbs" aria-label="待发送图片"></div>
+        <div class="composer">
+          <button class="icon-btn" id="attachBtn" type="button" aria-label="上传参考图" title="上传参考图（最多3张）">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          </button>
+          <input class="visually-hidden" id="fileInput" type="file" accept="image/*" multiple />
+          <input class="composer__input" id="input" type="text" placeholder="有什么问题可以问我" autocomplete="off" />
+          <button class="send-btn" id="send" type="button" aria-label="发送">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+{% include '_talk_markdown.js' %}
+</script>
+<script>
+(function () {
+  'use strict';
+
+  var app = document.querySelector('.scene');
+  var methodKey = app.dataset.methodKey;
+  var messageApi = app.dataset.messageApi;
+  var redisKeyPrefix = app.dataset.redisKeyPrefix || '';
+  var main = document.getElementById('mainScroll');
+  var chat = document.getElementById('chat');
+  var input = document.getElementById('input');
+  var sendBtn = document.getElementById('send');
+  var statusEl = document.getElementById('status');
+  var attachBtn = document.getElementById('attachBtn');
+  var fileInput = document.getElementById('fileInput');
+  var attachThumbs = document.getElementById('attachThumbs');
+  var welcome = document.getElementById('welcome');
+  var initialSessionId = {{ session_id | tojson }};
+  var MAX_IMAGES = 3;
+  /** @type {Array<{id: string, dataUrl: string}>} */
+  var pendingImages = [];
+  var thinkingRow = null;
+
+  bindAssistantImageDownloads(chat);
+
+  function getSessionId() {
+    if (initialSessionId) return initialSessionId;
+    var key = 'flowgame_talk_session_' + methodKey;
+    var id = localStorage.getItem(key);
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now());
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+
+  function scrollChatToBottom() {
+    if (!main) return;
+    function go() {
+      main.scrollTop = main.scrollHeight;
+    }
+    // 双 rAF：等布局完成后再滚到底（instant，避免 smooth 被后续高度变化打断）
+    requestAnimationFrame(function () {
+      go();
+      requestAnimationFrame(go);
+    });
+  }
+
+  /** 消息内图片异步加载会撑高内容，需在 load 后再滚一次 */
+  function scrollAfterImages(root) {
+    scrollChatToBottom();
+    if (!root) return;
+    var imgs = root.querySelectorAll('img');
+    if (!imgs.length) return;
+    Array.prototype.forEach.call(imgs, function (img) {
+      if (img.complete) return;
+      var onDone = function () {
+        img.removeEventListener('load', onDone);
+        img.removeEventListener('error', onDone);
+        scrollChatToBottom();
+      };
+      img.addEventListener('load', onDone);
+      img.addEventListener('error', onDone);
+    });
+  }
+
+  function renderAttachThumbs() {
+    attachThumbs.innerHTML = '';
+    attachThumbs.classList.toggle('has-items', pendingImages.length > 0);
+    attachBtn.classList.toggle('is-active', pendingImages.length > 0);
+    pendingImages.forEach(function (item) {
+      var wrap = document.createElement('div');
+      wrap.className = 'attach-thumb';
+      var img = document.createElement('img');
+      img.src = item.dataUrl;
+      img.alt = '参考图';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'attach-thumb__remove';
+      btn.setAttribute('aria-label', '移除图片');
+      btn.textContent = '×';
+      btn.addEventListener('click', function () {
+        pendingImages = pendingImages.filter(function (x) { return x.id !== item.id; });
+        renderAttachThumbs();
+      });
+      wrap.appendChild(img);
+      wrap.appendChild(btn);
+      attachThumbs.appendChild(wrap);
+    });
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result || '')); };
+      reader.onerror = function () { reject(new Error('读取图片失败')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList || []).filter(function (f) {
+      return f && String(f.type || '').indexOf('image/') === 0;
+    });
+    if (!files.length) {
+      statusEl.textContent = '请选择图片文件';
+      return;
+    }
+    statusEl.textContent = '';
+    for (var i = 0; i < files.length; i++) {
+      if (pendingImages.length >= MAX_IMAGES) {
+        statusEl.textContent = '最多上传 ' + MAX_IMAGES + ' 张图片';
+        break;
+      }
+      try {
+        var dataUrl = await readFileAsDataUrl(files[i]);
+        if (!dataUrl) continue;
+        pendingImages.push({
+          id: String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8),
+          dataUrl: dataUrl
+        });
+      } catch (err) {
+        statusEl.textContent = (err && err.message) || '读取图片失败';
+      }
+    }
+    renderAttachThumbs();
+    fileInput.value = '';
+  }
+
+  attachBtn.addEventListener('click', function () {
+    if (pendingImages.length >= MAX_IMAGES) {
+      statusEl.textContent = '最多上传 ' + MAX_IMAGES + ' 张图片';
+      return;
+    }
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', function () {
+    addFiles(fileInput.files);
+  });
+
+  function appendMessage(role, content, html, images) {
+    var row = document.createElement('div');
+    row.className = 'msg-row ' + role;
+    var div = document.createElement('div');
+    div.className = 'msg ' + role;
+    if (html) {
+      div.innerHTML = content;
+    } else if (role === 'assistant') {
+      div.classList.add('markdown');
+      div.innerHTML = renderAssistantMarkdown(content);
+    } else {
+      var imgs = Array.isArray(images) ? images : [];
+      if (imgs.length) {
+        var box = document.createElement('div');
+        box.className = 'user-imgs';
+        imgs.forEach(function (src) {
+          var img = document.createElement('img');
+          img.src = src;
+          img.alt = '参考图';
+          box.appendChild(img);
+        });
+        div.appendChild(box);
+      }
+      var textEl = document.createElement('div');
+      textEl.className = 'user-text';
+      textEl.textContent = content || '';
+      div.appendChild(textEl);
+    }
+    row.appendChild(div);
+    chat.appendChild(row);
+    scrollAfterImages(row);
+    return row;
+  }
+
+  function showThinkingBubble() {
+    removeThinkingBubble();
+    var row = document.createElement('div');
+    row.className = 'msg-row assistant';
+    row.id = 'thinking-row';
+    var div = document.createElement('div');
+    div.className = 'msg assistant thinking';
+    div.setAttribute('aria-label', '思考中');
+    div.innerHTML = '<span class="thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>';
+    row.appendChild(div);
+    chat.appendChild(row);
+    thinkingRow = row;
+    scrollChatToBottom();
+  }
+
+  function removeThinkingBubble() {
+    if (thinkingRow && thinkingRow.parentNode) {
+      thinkingRow.parentNode.removeChild(thinkingRow);
+    }
+    thinkingRow = null;
+  }
+
+  async function sendMessage(presetText) {
+    var text = (presetText != null ? String(presetText) : input.value).trim();
+    var images = pendingImages.map(function (x) { return x.dataUrl; });
+    if (!text && !images.length) return;
+    appendMessage('user', text, false, images);
+    if (presetText == null) input.value = '';
+    else input.value = '';
+    pendingImages = [];
+    renderAttachThumbs();
+    sendBtn.disabled = true;
+    statusEl.textContent = '';
+    showThinkingBubble();
+    try {
+      var body = {
+        methodKey: methodKey,
+        message: text,
+        sessionId: getSessionId()
+      };
+      if (redisKeyPrefix) body.redisKeyPrefix = redisKeyPrefix;
+      if (images.length) body.imgBase64List = images;
+      var headers = { 'Content-Type': 'application/json' };
+      if (redisKeyPrefix) headers['X-Flowgame-Redis-Key-Prefix'] = redisKeyPrefix;
+      var res = await fetch(messageApi, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body)
+      });
+      var payload = await res.json();
+      if (!res.ok || payload.code !== 200) {
+        throw new Error(payload.msg || payload.detail || '请求失败');
+      }
+      var assistant = payload.data && payload.data.assistantMessage;
+      var content = (assistant && assistant.content) || '(无回复)';
+      removeThinkingBubble();
+      appendMessage('assistant', content, false);
+      statusEl.textContent = '';
+    } catch (err) {
+      removeThinkingBubble();
+      statusEl.textContent = err.message || String(err);
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  }
+
+  if (welcome) {
+    welcome.addEventListener('click', function (e) {
+      var btn = e.target && e.target.closest ? e.target.closest('[data-q]') : null;
+      if (!btn || !welcome.contains(btn)) return;
+      e.preventDefault();
+      var q = btn.getAttribute('data-q') || '';
+      if (q) sendMessage(q);
+    });
+  }
+
+  sendBtn.addEventListener('click', function () { sendMessage(); });
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+})();
+</script>
+</body>
+</html>

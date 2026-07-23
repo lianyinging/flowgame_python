@@ -17,11 +17,11 @@ class NormalizeEnginesTest(unittest.TestCase):
     def test_default(self):
         self.assertEqual(
             normalize_engines(None),
-            ["google_news", "duckduckgo"],
+            ["qq_news"],
         )
         self.assertEqual(
             normalize_engines(""),
-            ["google_news", "duckduckgo"],
+            ["qq_news"],
         )
 
     def test_array_and_csv(self):
@@ -43,7 +43,13 @@ class NormalizeEnginesTest(unittest.TestCase):
     def test_legacy_paid_ignored(self):
         self.assertEqual(
             normalize_engines(["tavily", "bing"]),
-            ["google_news", "duckduckgo"],
+            ["qq_news"],
+        )
+
+    def test_playwright_engines_allowed(self):
+        self.assertEqual(
+            normalize_engines(["qq_news", "sina_news", "duckduckgo"]),
+            ["qq_news", "sina_news", "duckduckgo"],
         )
 
 
@@ -96,6 +102,22 @@ class SearchWebTest(unittest.TestCase):
         result = search_web("  ", engines=["duckduckgo"], limit=5)
         self.assertEqual(result["documents"], [])
         self.assertTrue(result["errors"])
+
+    @patch("src.flowgame.web.search.search_qq_news")
+    def test_qq_news_engine(self, mock_qq):
+        mock_qq.return_value = [
+            {
+                "title": "腾讯稿",
+                "content": "摘要",
+                "url": "https://news.qq.com/rain/a/1",
+                "engine": "qq_news",
+                "source": "腾讯新闻",
+            }
+        ]
+        result = search_web("小红书", engines=["qq_news"], limit=5)
+        self.assertEqual(len(result["documents"]), 1)
+        self.assertEqual(result["documents"][0]["engine"], "qq_news")
+        mock_qq.assert_called_once()
 
     @patch("src.flowgame.web.search.requests.get")
     def test_google_news_rss(self, mock_get):

@@ -9,6 +9,9 @@ from pydantic import BaseModel, Field
 
 from src.flowgame.qdrant.router import qdrant_router
 from src.flowgame.redis.router import redis_router
+from src.flowgame.team.router import team_router
+from src.flowgame.flow_delete import delete_saved_flow
+from src.flowgame.flow_delete_auth import flow_delete_password_required
 from src.flowgame.key_prefix import bind_request_key_prefixes
 from src.flowgame.service import FlowGameExecuteError, flow_game_execute_service
 from src.flowgame.workflow_runner import WorkflowQueueFullError
@@ -16,6 +19,54 @@ from src.flowgame.workflow_runner import WorkflowQueueFullError
 flowgame_router = APIRouter()
 flowgame_router.include_router(redis_router, prefix="/redis", tags=["FlowGame-Redis"])
 flowgame_router.include_router(qdrant_router, prefix="/qdrant", tags=["FlowGame-Qdrant"])
+flowgame_router.include_router(team_router, tags=["FlowGame-Teams"])
+
+
+class FlowDeleteBody(BaseModel):
+    redisKey: str = Field(..., description="流程 Redis 键")
+    deletePassword: Optional[str] = Field(
+        default=None,
+        description="删除密码；服务端配置了 FLOWGAME_FLOW_DELETE_PASSWORD 时必填",
+    )
+
+
+class FlowGameApiResponse(BaseModel):
+    code: int = Field(description="200 表示成功")
+    msg: str = Field(description="响应消息")
+    data: Optional[Dict[str, Any]] = Field(default=None, description="业务数据")
+
+
+@flowgame_router.get(
+    "/flows/delete-guard",
+    response_model=FlowGameApiResponse,
+    summary="查询流程删除是否需要密码",
+)
+def get_flow_delete_guard():
+    required = flow_delete_password_required()
+    return FlowGameApiResponse(
+        code=200,
+        msg="ok",
+        data={"passwordRequired": required},
+    )
+
+
+@flowgame_router.post(
+    "/flows/delete",
+    response_model=FlowGameApiResponse,
+    summary="删除已保存流程（密码校验）",
+)
+def delete_flow(body: FlowDeleteBody):
+    """
+    删除流程 Redis 键并更新 flow_list 索引。
+
+    当环境变量 ``FLOWGAME_FLOW_DELETE_PASSWORD`` 非空时，请求体 ``deletePassword`` 必须匹配。
+    """
+    data = delete_saved_flow(
+        redis_key=body.redisKey,
+        delete_password=body.deletePassword,
+    )
+    msg = "删除成功" if data.get("deleted") else "键不存在或已删除"
+    return FlowGameApiResponse(code=200, msg=msg, data=data)
 
 
 class FlowGameExecuteResponse(BaseModel):
@@ -74,7 +125,7 @@ def talk_message(
           "variables": {}
         }
 
-    imgBase64List 最多 3 张；图生图对话模板（image_chat）会在前端转 base64 后传入。
+    imgBase64List 最多 3 张；图生图对话模板（image_chat / image_chat_blue / image_chat_purple）会在前端转 base64 后传入。
 
     响应 data 含 assistantMessage: {"role": "assistant", "content": "..."}
     """

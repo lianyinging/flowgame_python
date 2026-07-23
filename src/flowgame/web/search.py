@@ -4,8 +4,9 @@
   - Google News / HN 等主题 RSS（免费、无 Key）
   - DuckDuckGo HTML 网页搜索（免费、无 Key）
   - 可选 Wikipedia
+  - 可选 Playwright：腾讯新闻 / 新浪新闻（见 playwright_scripts/）
 
-均为免费通道，无需 API Key。
+默认通道免费、无需 API Key；Playwright 渠道需额外安装浏览器。
 """
 from __future__ import annotations
 
@@ -26,10 +27,16 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; FlowGameBot/1.0; +https://flowgame.mgdeep.com)"
 )
 DEFAULT_TIMEOUT = 20
-# 默认与 demo Scout 一致：RSS + DuckDuckGo
-ALLOWED_ENGINES = ("google_news", "duckduckgo", "wikipedia")
+# 默认与 demo Scout 一致：RSS + DuckDuckGo；Playwright 为可选勾选
+ALLOWED_ENGINES = (
+    "google_news",
+    "duckduckgo",
+    "wikipedia",
+    "qq_news",
+    "sina_news",
+)
 LEGACY_PAID_ENGINES = frozenset({"tavily", "bing"})
-DEFAULT_ENGINES = ["google_news", "duckduckgo"]
+DEFAULT_ENGINES = ["qq_news"]
 
 
 def _clean_text(raw: str) -> str:
@@ -315,12 +322,67 @@ def search_wikipedia(keyword: str, limit: int) -> List[Dict[str, Any]]:
     return out
 
 
+def search_qq_news(keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """腾讯新闻搜索（Playwright，可选渠道）。"""
+    from src.flowgame.playwright_scripts import playwright_enabled
+    from src.flowgame.playwright_scripts._browser import pages_for_limit
+    from src.flowgame.playwright_scripts.qq_news import crawl
+
+    if not playwright_enabled():
+        raise RuntimeError(
+            "Playwright 未启用或未安装。请确认已 pip install -r requirements.txt "
+            "&& playwright install chromium（Docker 镜像已内置）"
+        )
+    pages = pages_for_limit(limit, per_page=10)
+    raw = crawl(keyword=keyword, pages=pages)
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        title = _clean_text(str(item.get("title") or ""))
+        url = str(item.get("url") or "").strip()
+        if not title or not url:
+            continue
+        content = _clean_text(str(item.get("summary") or ""))
+        out.append(_doc(title, content[:800], url, "qq_news", source="腾讯新闻"))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def search_sina_news(keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """新浪新闻搜索（Playwright，可选渠道）。"""
+    from src.flowgame.playwright_scripts import playwright_enabled
+    from src.flowgame.playwright_scripts._browser import pages_for_limit
+    from src.flowgame.playwright_scripts.sina_news import crawl
+
+    if not playwright_enabled():
+        raise RuntimeError(
+            "Playwright 未启用或未安装。请确认已 pip install -r requirements.txt "
+            "&& playwright install chromium（Docker 镜像已内置）"
+        )
+    pages = pages_for_limit(limit, per_page=10)
+    raw = crawl(keyword=keyword, pages=pages)
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        title = _clean_text(str(item.get("title") or ""))
+        url = str(item.get("url") or "").strip()
+        if not title or not url:
+            continue
+        content = _clean_text(str(item.get("summary") or ""))
+        source = _clean_text(str(item.get("source") or "")) or "新浪新闻"
+        out.append(_doc(title, content[:800], url, "sina_news", source=source))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _engine_func(engine_id: str):
     """Resolve by name at call time so tests can patch module functions."""
     mapping = {
         "google_news": search_google_news,
         "duckduckgo": search_duckduckgo,
         "wikipedia": search_wikipedia,
+        "qq_news": search_qq_news,
+        "sina_news": search_sina_news,
     }
     return mapping.get(engine_id)
 

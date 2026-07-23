@@ -41,9 +41,18 @@ class FlowGameExecuteError(Exception):
 
 
 class ResolvedRequest:
-    def __init__(self, workflow_json: str, variables: Optional[Dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        workflow_json: str,
+        variables: Optional[Dict[str, Any]],
+        *,
+        method_key: Optional[str] = None,
+        flow_name: Optional[str] = None,
+    ) -> None:
         self.workflow_json = workflow_json
         self.variables = variables
+        self.method_key = (method_key or "").strip() or None
+        self.flow_name = (flow_name or "").strip() or None
 
 
 class FlowGameExecuteService:
@@ -81,7 +90,13 @@ class FlowGameExecuteService:
         http_headers: Optional[Mapping[str, str]] = None,
     ) -> Dict[str, Any]:
         resolved = self.resolve_request(body, http_headers=http_headers)
-        return self.execute_workflow(resolved.workflow_json, resolved.variables, user_id=user_id)
+        return self.execute_workflow(
+            resolved.workflow_json,
+            resolved.variables,
+            user_id=user_id,
+            method_key=resolved.method_key,
+            flow_name=resolved.flow_name,
+        )
 
     def iter_execute_stream(
         self,
@@ -123,6 +138,8 @@ class FlowGameExecuteService:
                     resolved.variables,
                     user_id=user_id,
                     progress_callback=on_progress,
+                    method_key=resolved.method_key,
+                    flow_name=resolved.flow_name,
                 )
             except FlowGameExecuteError as exc:
                 event_queue.put(self._stream_line("workflow_error", {"message": str(exc)}))
@@ -158,6 +175,8 @@ class FlowGameExecuteService:
         user_id: Optional[Any] = None,
         *,
         progress_callback: Optional[Any] = None,
+        method_key: Optional[str] = None,
+        flow_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         with workflow_run_slot():
             return self._execute_workflow_impl(
@@ -165,7 +184,46 @@ class FlowGameExecuteService:
                 variables,
                 user_id=user_id,
                 progress_callback=progress_callback,
+                method_key=method_key,
+                flow_name=flow_name,
             )
+
+    @staticmethod
+    def _resolve_flow_identity(
+        workflow_json: str,
+        *,
+        method_key: Optional[str] = None,
+        flow_name: Optional[str] = None,
+    ) -> tuple[str, str]:
+        """返回 (flow_name, method_key)，尽量从画布 Start API 推断。"""
+        mk = (method_key or "").strip()
+        name = (flow_name or "").strip()
+        try:
+            obj = json.loads(workflow_json)
+        except json.JSONDecodeError:
+            obj = {}
+        if isinstance(obj, dict):
+            if not name:
+                for key in ("name", "title", "flowName"):
+                    raw = obj.get(key)
+                    if raw and str(raw).strip():
+                        name = str(raw).strip()
+                        break
+            if not mk:
+                for node in obj.get("nodes") or []:
+                    if not isinstance(node, dict):
+                        continue
+                    ntype = str(node.get("type") or "")
+                    if ntype not in ("node_start_api", "startApiNode"):
+                        continue
+                    data = node.get("data") if isinstance(node.get("data"), dict) else {}
+                    cand = data.get("methodKey") or data.get("method_key")
+                    if cand and str(cand).strip():
+                        mk = str(cand).strip()
+                        break
+        if not name:
+            name = mk or "(未命名流程)"
+        return name, mk
 
     def _execute_workflow_impl(
         self,
@@ -174,6 +232,8 @@ class FlowGameExecuteService:
         user_id: Optional[Any] = None,
         *,
         progress_callback: Optional[Any] = None,
+        method_key: Optional[str] = None,
+        flow_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not workflow_json or not str(workflow_json).strip():
             raise FlowGameExecuteError("工作流定义不能为空")
@@ -187,6 +247,12 @@ class FlowGameExecuteService:
         except ValueError as exc:
             raise FlowGameExecuteError(str(exc)) from exc
 
+        flow_label, flow_method_key = self._resolve_flow_identity(
+            workflow_json,
+            method_key=method_key,
+            flow_name=flow_name,
+        )
+
         params = self._build_params(variables, user_id)
         node_count = 0
         try:
@@ -196,6 +262,8 @@ class FlowGameExecuteService:
             pass
         log_workflow_event(
             "workflow_started",
+            flow_name=flow_label,
+            method_key=flow_method_key,
             extra={
                 "userId": user_id,
                 "nodeCount": node_count,
@@ -216,12 +284,15 @@ class FlowGameExecuteService:
                 force_full_details=progress_callback is not None,
             )
             logger.info(
-                "Tinyflow 执行完成 status=%s includeDetails=%s",
+                "Tinyflow 执行完成 flow=%s status=%s includeDetails=%s",
+                flow_label,
                 response.get("status"),
                 "full" if ("nodeExecutions" in response or progress_callback) else "custom",
             )
             log_workflow_event(
                 "workflow_finished",
+                flow_name=flow_label,
+                method_key=flow_method_key,
                 extra={
                     "status": response.get("status"),
                     "message": response.get("message"),
@@ -231,11 +302,21 @@ class FlowGameExecuteService:
                 progress_callback("workflow_finished", response)
             return response
         except FlowGameExecuteError as exc:
-            log_workflow_event("workflow_error", message=str(exc))
+            log_workflow_event(
+                "workflow_error",
+                message=str(exc),
+                flow_name=flow_label,
+                method_key=flow_method_key,
+            )
             raise
         except Exception as exc:
-            logger.error("Tinyflow 工作流执行失败", exc_info=True)
-            log_workflow_event("workflow_error", message=str(exc))
+            logger.error("Tinyflow 工作流执行失败 flow=%s", flow_label, exc_info=True)
+            log_workflow_event(
+                "workflow_error",
+                message=str(exc),
+                flow_name=flow_label,
+                method_key=flow_method_key,
+            )
             raise FlowGameExecuteError(f"工作流执行失败：{exc}") from exc
 
     def resolve_request(
@@ -257,7 +338,12 @@ class FlowGameExecuteService:
             self._validate_method_key_in_workflow(workflow_json, method_key)
             variables = self._extract_variables(body)
             variables = self._merge_http_headers(variables, http_headers)
-            return ResolvedRequest(workflow_json, variables)
+            return ResolvedRequest(
+                workflow_json,
+                variables,
+                method_key=method_key,
+                flow_name=method_key,
+            )
 
         variables: Optional[Dict[str, Any]] = None
         if "workflow" in body:
@@ -694,6 +780,8 @@ class FlowGameExecuteService:
             workflow_json,
             merged_headers,
             user_id=user_id,
+            method_key=method_key,
+            flow_name=method_key,
         )
 
         end_output = result.get("endNodeOutput") or result.get("lastNodeOutput") or {}

@@ -1,0 +1,166 @@
+"""腾讯新闻搜索爬虫（Playwright）。
+
+目标页: https://news.qq.com/search?query=...&page=...
+列表字段: title / summary / url
+
+可独立运行:
+  python -m src.flowgame.playwright_scripts.qq_news --keyword 小红书 --pages 2
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import time
+from typing import Any, Dict, List
+from urllib.parse import quote
+
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+from src.flowgame.playwright_scripts._browser import (
+    chromium_page,
+    env_delay,
+    env_headless,
+)
+
+SEARCH_URL = "https://news.qq.com/search?query={keyword}&page={page}"
+logger = logging.getLogger(__name__)
+
+
+def build_url(keyword: str, page: int) -> str:
+    return SEARCH_URL.format(keyword=quote(keyword), page=page)
+
+
+def extract_items(page) -> List[Dict[str, Any]]:
+    return page.evaluate(
+        """() => {
+            const cards = Array.from(
+                document.querySelectorAll('a.hover-link[href*="/rain/a/"]')
+            );
+            const seen = new Set();
+            const items = [];
+
+            for (const a of cards) {
+                if (!a.href || seen.has(a.href)) continue;
+                seen.add(a.href);
+
+                const titleEl = a.querySelector('p.title');
+                const descEl = a.querySelector('p.description');
+                const title = (
+                    titleEl?.getAttribute('title') ||
+                    titleEl?.innerText ||
+                    ''
+                ).trim();
+                if (!title) continue;
+
+                items.push({
+                    title,
+                    summary: (
+                        descEl?.getAttribute('title') ||
+                        descEl?.innerText ||
+                        ''
+                    ).trim(),
+                    url: a.href,
+                });
+            }
+            return items;
+        }"""
+    )
+
+
+def crawl(
+    keyword: str,
+    pages: int = 2,
+    start_page: int = 1,
+    headless: bool | None = None,
+    delay: float | None = None,
+) -> List[Dict[str, Any]]:
+    """爬取腾讯新闻搜索结果（标题 / 简介 / url）。"""
+    results: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    end_page = start_page + max(1, pages) - 1
+    real_delay = env_delay() if delay is None else max(0.0, delay)
+    real_headless = env_headless() if headless is None else headless
+
+    with chromium_page(headless=real_headless) as page:
+        for page_no in range(start_page, end_page + 1):
+            url = build_url(keyword, page_no)
+            logger.info("qq_news 抓取第 %d 页: %s", page_no, url)
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_selector(
+                    'a.hover-link[href*="/rain/a/"]',
+                    timeout=20000,
+                )
+                page.wait_for_timeout(1000)
+            except PlaywrightTimeoutError:
+                logger.warning("qq_news 第 %d 页超时或无结果，停止翻页", page_no)
+                break
+
+            items = extract_items(page)
+            if not items:
+                logger.warning("qq_news 第 %d 页未解析到结果，停止翻页", page_no)
+                break
+
+            added = 0
+            for item in items:
+                if item["url"] in seen_urls:
+                    continue
+                seen_urls.add(item["url"])
+                results.append(
+                    {
+                        "title": item["title"],
+                        "summary": item["summary"],
+                        "url": item["url"],
+                    }
+                )
+                added += 1
+
+            logger.info(
+                "qq_news 第 %d 页新增 %d 条，累计 %d 条",
+                page_no,
+                added,
+                len(results),
+            )
+            if page_no < end_page and real_delay > 0:
+                time.sleep(real_delay)
+
+    return results
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="腾讯新闻搜索爬虫（Playwright）")
+    parser.add_argument("--keyword", "-k", default="小红书", help="搜索关键词")
+    parser.add_argument("--pages", "-p", type=int, default=2, help="抓取页数")
+    parser.add_argument("--start-page", type=int, default=1, help="起始页码")
+    parser.add_argument("--headed", action="store_true", help="显示浏览器窗口")
+    parser.add_argument("--delay", type=float, default=1.0, help="翻页间隔秒数")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    items = crawl(
+        keyword=args.keyword,
+        pages=args.pages,
+        start_page=args.start_page,
+        headless=not args.headed,
+        delay=args.delay,
+    )
+    if not items:
+        logger.error("未抓取到任何数据")
+        return 2
+    print(f"共 {len(items)} 条")
+    for item in items[:3]:
+        print(f"  · {item['title']}")
+        print(f"    {item['url']}")
+    return 0
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    raise SystemExit(main())

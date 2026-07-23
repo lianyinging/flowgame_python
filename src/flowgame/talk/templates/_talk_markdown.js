@@ -306,7 +306,7 @@ function renderAssistantImageCards(urls) {
     return (
       '<div class="assistant-image-card">' +
         '<a class="assistant-image-link" href="' + safe + '" target="_blank" rel="noopener noreferrer">' +
-          '<img class="assistant-image" src="' + safe + '" alt="生成图片" loading="lazy" />' +
+          '<img class="assistant-image" src="' + safe + '" alt="生成图片" loading="eager" />' +
         '</a>' +
         '<div class="assistant-image-actions">' +
           '<button type="button" class="assistant-image-download" data-image-url="' + safe + '" data-image-name="' + name + '">下载图片</button>' +

@@ -34,6 +34,7 @@
 ## 核心能力
 
 - **工作流执行**：同步 `POST /execute` 与 NDJSON 流式 `POST /execute/stream`（编辑器试运行进度）
+- **多 Agent Team**：`POST /teams/run`（主控 supervisor / 顺序 sequential；无画布流程时回退内置 Prompt）
 - **Redis 流程存储**：流程列表、按 `methodKey` 加载与保存工作流 JSON
 - **Qdrant 知识库**：Collection 管理、文档入库、向量检索（RAG）
 - **Embedding 可插拔**：HTTP 向量服务或本地 BGE 模型
@@ -62,6 +63,13 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env               # 生产/默认环境
 cp .env.dev.example .env.dev       # 可选：开发/测试环境
+```
+
+网页搜索 Playwright 渠道（腾讯新闻 `qq_news` / 新浪新闻 `sina_news`）已含在 `requirements.txt`；本地还需下载浏览器（Docker 镜像构建时已执行）：
+
+```bash
+playwright install chromium
+# 脚本目录：src/flowgame/playwright_scripts/
 ```
 
 ### 2. 启动服务
@@ -126,6 +134,8 @@ export default defineConfig({
 |------|------|------|
 | POST | `/api/v1/flowGame/execute` | 同步执行工作流 |
 | POST | `/api/v1/flowGame/execute/stream` | NDJSON 流式执行（试运行进度） |
+| POST | `/api/v1/flowGame/teams/run` | 执行 AgentTeam（supervisor / sequential） |
+| GET/PUT | `/api/v1/flowGame/teams`、`/agents` | Team / Agent 元数据 |
 | GET/POST | `/api/v1/flowGame/redis/*` | 工作流 Redis 读写、流程列表 |
 | GET/POST | `/api/v1/flowGame/qdrant/*` | 知识库 Collection / 文档 / 检索 |
 

@@ -519,15 +519,19 @@ class LlmApiNode(BaseNode):
         if user_message:
             params["userMessage"] = user_message
 
+        # 模板根：链路 memory（含 Team 注入的 status_card/topic 等）+ 节点参数
+        # 仅认 {{ var }}；{var} 不会被替换（避免破坏 Prompt 里的 JSON 示例）
+        template_root: Dict[str, Any] = {**(chain.memory or {}), **params}
+
         messages: List[Dict[str, str]] = []
         if self.system_prompt:
-            system_content = format_template(self.system_prompt, params)
+            system_content = format_template(self.system_prompt, template_root)
             if system_content.strip():
                 messages.append({"role": "system", "content": system_content})
 
         user_content = ""
         if self.user_prompt:
-            user_content = format_template(self.user_prompt, params)
+            user_content = format_template(self.user_prompt, template_root)
         elif user_message:
             user_content = user_message
 
@@ -1406,7 +1410,7 @@ class WebSearchNode(BaseNode):
 
     def __init__(self) -> None:
         super().__init__()
-        self.engines: List[str] = ["duckduckgo"]
+        self.engines: List[str] = ["qq_news"]
         self.keyword: Optional[str] = None
         self.limit: Optional[str] = None
 

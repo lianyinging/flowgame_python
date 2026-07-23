@@ -24,7 +24,8 @@ RUN apt-get update \
 
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt
+    && pip install -r requirements.txt \
+    && playwright install --with-deps chromium
 
 COPY run.py .
 COPY src ./src

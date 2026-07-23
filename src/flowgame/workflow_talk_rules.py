@@ -8,7 +8,7 @@ START_TALK_NODE_TYPE = "node_start_talk"
 END_NODE_TYPE = "endNode"
 END_API_NODE_TYPE = "node_end_api"
 ASSISTANT_MESSAGE_OUTPUT_NAME = "assistantMessage"
-TALK_TEMPLATES = frozenset({"default", "minimal", "image_chat"})
+TALK_TEMPLATES = frozenset({"default", "minimal", "image_chat", "image_chat_blue", "image_chat_purple"})
 
 
 def find_start_talk_data(workflow_json: str) -> Optional[Dict[str, Any]]:

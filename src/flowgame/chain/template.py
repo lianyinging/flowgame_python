@@ -1,6 +1,7 @@
 """{{ variable }} template formatting (TextPromptTemplate port)."""
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,6 +43,11 @@ def format_template(template: Optional[str], root_map: Optional[Dict[str, Any]] 
         value = _get_by_path(root, expr)
         if value is None:
             return default
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, ensure_ascii=False, default=str)
+            except TypeError:
+                return str(value)
         return str(value)
 
     return _PLACEHOLDER.sub(replacer, template)
