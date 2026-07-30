@@ -131,6 +131,65 @@ class TeamRuntimeTests(unittest.TestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(len(result.trace), 2)
 
+    def test_extract_slim_end_output_writes_menu_content(self):
+        """Agent 流程关闭过程详情时，顶层 menuContent 必须写回黑板。"""
+        team = AgentTeamDef(
+            teamKey="team_writer",
+            name="w",
+            strategy="sequential",
+            members=[AgentTeamMember(agentKey="writer", alias="writer")],
+            harness=AgentTeamHarness(allowedAgents=["writer"]),
+            outputPrimaryKey="menuContent",
+        )
+        agents = {
+            "writer": FlowAgentConfig(
+                agentKey="writer",
+                methodKey="内容编写-Agent",
+                outputKey="menuContent",
+            ),
+        }
+        runtime = TeamRuntime(team, agents)
+        runtime.state = {
+            "menuContent": {
+                "小节A": "",
+                "小节B": "",
+            },
+            "currentSearch": "小节A",
+        }
+        slim_result = {
+            "menuContent": {
+                "小节A": "第一节正文",
+                "小节B": "",
+            },
+            "documentNull": True,
+        }
+        with patch.object(runtime, "_try_execute_flow", return_value=slim_result):
+            runtime.invoke_worker("writer", focus="")
+
+        self.assertEqual(runtime.state["menuContent"]["小节A"], "第一节正文")
+        self.assertEqual(runtime.state["menuContent"]["小节B"], "")
+        self.assertTrue(runtime.state.get("documentNull"))
+
+    def test_extract_flow_outputs_prefers_end_node_then_slim(self):
+        runtime = TeamRuntime(
+            AgentTeamDef(teamKey="t", name="t", strategy="sequential"),
+            {},
+        )
+        # 完整模式
+        full = {
+            "endNodeOutput": {"documents": [{"url": "https://a"}]},
+            "apiOutput": {"body": {"documents": "should-not-use"}},
+        }
+        self.assertEqual(
+            runtime._extract_flow_outputs(full)["documents"][0]["url"],
+            "https://a",
+        )
+        # 精简模式（无 endNodeOutput / nodeExecutions）
+        slim = {"menuContent": {"k": "v"}, "menuStatus": {"k": True}}
+        out = runtime._extract_flow_outputs(slim)
+        self.assertEqual(out["menuContent"]["k"], "v")
+        self.assertTrue(out["menuStatus"]["k"])
+
 
 if __name__ == "__main__":
     unittest.main()

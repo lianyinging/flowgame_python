@@ -214,7 +214,13 @@ class TeamRuntime:
         apiOutput 来自 Api开始（headers/body/statusCode），body 往往是入参
         （topic/requirement），不是结束节点的 documents；若优先 apiOutput
         会把下游黑板上的 documents 冲掉。
+
+        Agent 流程通常关闭「输出过程详情」：此时返回体就是精简自定义字段
+        （如 menuContent / menuStatus），没有 endNodeOutput 外壳，必须整包认作产出。
         """
+        if not isinstance(result, dict) or not result:
+            return {}
+
         merged: Dict[str, Any] = {}
         for bag_name in ("endNodeOutput", "lastNodeOutput"):
             bag = result.get(bag_name)
@@ -223,22 +229,68 @@ class TeamRuntime:
         if merged:
             return merged
 
-        # Api接口结束且关闭过程详情时：响应本身就是自定义输出（顶层 documents 等）
+        # Api接口结束关闭过程详情：响应顶层即自定义输出参数
         skip_top = {
-            "status", "message", "methodKey", "nodeExecutions", "apiOutput",
-            "endNodeOutput", "lastNodeOutput", "apiDescription", "requestType",
-            "externalUrl", "_flow_error",
+            "status",
+            "message",
+            "methodKey",
+            "nodeExecutions",
+            "apiOutput",
+            "endNodeOutput",
+            "lastNodeOutput",
+            "apiDescription",
+            "requestType",
+            "externalUrl",
+            "_flow_error",
         }
-        business_keys = ("documents", "articles", "article", "content", "decision", "output", "research", "outline", "review")
-        if isinstance(result, dict) and any(k in result for k in business_keys):
-            return {k: v for k, v in result.items() if k not in skip_top and v is not None}
+        slim = {
+            k: v
+            for k, v in result.items()
+            if k not in skip_top and v is not None
+        }
+        # 精简响应：只要有任意业务字段就整包写回（含 menuContent 等，不维护白名单）
+        # 完整响应通常还有 nodeExecutions/apiOutput，slim 为空或只剩杂项时走后面分支
+        if slim and not any(k in result for k in ("nodeExecutions", "apiOutput")):
+            return slim
+        # 兼容：完整壳里偶发顶层也带了业务字段
+        if slim and any(
+            k in slim
+            for k in (
+                "documents",
+                "articles",
+                "article",
+                "content",
+                "decision",
+                "output",
+                "research",
+                "outline",
+                "review",
+                "menuContent",
+                "menuStatus",
+                "menu",
+                "currentSearch",
+                "documentNull",
+            )
+        ):
+            return slim
 
         # 无结束输出时再看 apiOutput：若 body 里已是结束字段则摊平
         api = result.get("apiOutput")
         if isinstance(api, dict) and api:
             body = api.get("body")
             if isinstance(body, dict) and any(
-                k in body for k in ("documents", "articles", "article", "content", "decision")
+                k in body
+                for k in (
+                    "documents",
+                    "articles",
+                    "article",
+                    "content",
+                    "decision",
+                    "menuContent",
+                    "menuStatus",
+                    "menu",
+                    "currentSearch",
+                )
             ):
                 return dict(body)
             # 最后手段：不要把 headers/statusCode 当业务字段写回
@@ -256,7 +308,7 @@ class TeamRuntime:
                     continue
                 out = node.get("output")
                 if isinstance(out, dict) and out:
-                    if ntype in ("endNode", "node_end_api") or "documents" in out or "articles" in out:
+                    if ntype in ("endNode", "node_end_api") or "documents" in out or "articles" in out or "menuContent" in out:
                         return dict(out)
             # 再扫一遍非开始节点的最后输出
             for node in reversed(nodes):

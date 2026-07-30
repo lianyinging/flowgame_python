@@ -4,7 +4,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
-from src.flowgame.web.fetch import _html_to_text, fetch_url_document
+from src.flowgame.web.fetch import _html_to_text, fetch_url_document, fetch_url_documents, normalize_fetch_urls
 from src.flowgame.web.search import (
     normalize_engines,
     search_google_news,
@@ -154,7 +154,10 @@ class FetchUrlTest(unittest.TestCase):
         resp.status_code = 200
         resp.url = "https://example.com/page"
         resp.headers = {"Content-Type": "text/html; charset=utf-8"}
-        resp.text = "<html><title>Hi</title><body><p>" + ("Body text " * 20) + "</p></body></html>"
+        html = "<html><title>Hi</title><body><p>" + ("Body text " * 20) + "</p></body></html>"
+        resp.text = html
+        resp.content = html.encode("utf-8")
+        resp.encoding = "utf-8"
         resp.raise_for_status = MagicMock()
         session.get.return_value = resp
         result = fetch_url_document("https://example.com/page", max_chars=1000)
@@ -171,10 +174,14 @@ class FetchUrlTest(unittest.TestCase):
         mock_session_cls.return_value = session
         jina_resp = MagicMock()
         jina_resp.status_code = 200
-        jina_resp.text = (
+        jina_body = (
             "Title: Jina Title\n\n"
             + ("Readable markdown body from jina reader. " * 10)
         )
+        jina_resp.text = jina_body
+        jina_resp.content = jina_body.encode("utf-8")
+        jina_resp.encoding = "utf-8"
+        jina_resp.headers = {"Content-Type": "text/plain; charset=utf-8"}
         session.get.return_value = jina_resp
         result = fetch_url_document("https://example.com/page", max_chars=2000)
         self.assertEqual(result["fetchMethod"], "jina")
@@ -185,6 +192,62 @@ class FetchUrlTest(unittest.TestCase):
         called_url = session.get.call_args[0][0]
         self.assertTrue(str(called_url).startswith("https://r.jina.ai/"))
 
+
+class NormalizeFetchUrlsTest(unittest.TestCase):
+    def test_string_and_list(self):
+        self.assertEqual(
+            normalize_fetch_urls("https://a.com"),
+            ["https://a.com"],
+        )
+        self.assertEqual(
+            normalize_fetch_urls(["https://a.com", "https://b.com", "https://a.com"]),
+            ["https://a.com", "https://b.com"],
+        )
+
+    def test_documents_objects(self):
+        docs = [
+            {"url": "https://a.com", "title": "A"},
+            {"link": "https://b.com", "title": "B"},
+        ]
+        self.assertEqual(
+            normalize_fetch_urls(docs),
+            ["https://a.com", "https://b.com"],
+        )
+
+
+class FetchUrlDocumentsTest(unittest.TestCase):
+    @patch.dict("os.environ", {"FLOWGAME_JINA_ENABLED": "false"}, clear=False)
+    @patch("src.flowgame.web.fetch.requests.Session")
+    def test_batch(self, mock_session_cls):
+        session = MagicMock()
+        mock_session_cls.return_value = session
+
+        def _make_resp(url: str):
+            resp = MagicMock()
+            resp.status_code = 200
+            resp.url = url
+            resp.headers = {"Content-Type": "text/html; charset=utf-8"}
+            html = (
+                f"<html><title>{url}</title><body><p>"
+                + ("Body text " * 20)
+                + "</p></body></html>"
+            )
+            resp.text = html
+            resp.content = html.encode("utf-8")
+            resp.encoding = "utf-8"
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        session.get.side_effect = lambda u, **kwargs: _make_resp(u)
+        result = fetch_url_documents(
+            ["https://example.com/a", "https://example.com/b"],
+            max_chars=1000,
+            max_workers=2,
+        )
+        self.assertEqual(len(result["documents"]), 2)
+        self.assertEqual(result["url"], "https://example.com/a")
+        self.assertIn("Body text", result["content"])
+        self.assertFalse(result["errorMessage"])
 
 
 if __name__ == "__main__":

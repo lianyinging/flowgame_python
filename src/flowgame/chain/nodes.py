@@ -9,7 +9,7 @@ import requests
 from src.flowgame.chain.base_node import BaseNode
 from src.flowgame.chain.chain import Chain
 from src.flowgame.chain.enums import DataType, RefType
-from src.flowgame.chain.js_engine import eval_js
+from src.flowgame.chain.js_engine import eval_js, eval_python
 from src.flowgame.chain.parameter import Parameter
 from src.flowgame.chain.field_resolver import resolve_named_field
 from src.flowgame.chain.template import format_template
@@ -31,6 +31,11 @@ def _parse_optional_json_object(raw: Any) -> Dict[str, Any]:
 
 
 def _extract_openai_chat_content(payload: Any) -> str:
+    """从 OpenAI 兼容 chat.completion 中提取助手文本。
+
+    DeepSeek 等推理模型常把最终答复写在 reasoning_content，而 content 为空；
+    此时应回退到 reasoning_content，并尽量抽出其中的 JSON 决策块。
+    """
     if not isinstance(payload, dict):
         return ""
     choices = payload.get("choices")
@@ -39,13 +44,71 @@ def _extract_openai_chat_content(payload: Any) -> str:
     first = choices[0]
     if not isinstance(first, dict):
         return ""
+
+    candidates: List[str] = []
     message = first.get("message")
     if isinstance(message, dict):
-        content = message.get("content")
-        if content is not None:
-            return str(content)
-    text = first.get("text")
-    return str(text) if text is not None else ""
+        for key in ("content", "reasoning_content", "reasoning"):
+            raw = message.get(key)
+            if raw is None:
+                continue
+            text = str(raw).strip()
+            if text:
+                candidates.append(text)
+    text_field = first.get("text")
+    if text_field is not None:
+        text = str(text_field).strip()
+        if text:
+            candidates.append(text)
+
+    if not candidates:
+        return ""
+
+    # 优先非空 content（已在 candidates[0] 若存在）；若仅有推理字段，尝试抽出 JSON
+    primary = candidates[0]
+    if primary.lstrip().startswith("{") and primary.rstrip().endswith("}"):
+        return primary
+
+    for text in candidates:
+        extracted = _extract_trailing_json_object(text)
+        if extracted:
+            return extracted
+    return primary
+
+
+def _extract_trailing_json_object(text: str) -> str:
+    """从混杂文本中提取最后一个完整 JSON 对象（主控决策常见形态）。"""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("{") and raw.endswith("}"):
+        try:
+            json.loads(raw)
+            return raw
+        except json.JSONDecodeError:
+            pass
+    end = raw.rfind("}")
+    if end < 0:
+        return ""
+    depth = 0
+    start = -1
+    for i in range(end, -1, -1):
+        ch = raw[i]
+        if ch == "}":
+            depth += 1
+        elif ch == "{":
+            depth -= 1
+            if depth == 0:
+                start = i
+                break
+    if start < 0:
+        return ""
+    candidate = raw[start : end + 1]
+    try:
+        json.loads(candidate)
+        return candidate
+    except json.JSONDecodeError:
+        return ""
 
 
 def _format_api_error_message(status_code: int, payload: Any, request_url: str = "") -> str:
@@ -604,14 +667,17 @@ class LlmApiNode(BaseNode):
 class CodeNode(BaseNode):
     def __init__(self, engine: str = "js") -> None:
         super().__init__()
-        self.engine = engine
+        self.engine = (engine or "js").strip().lower()
         self.code: Optional[str] = None
 
     def execute(self, chain: Chain) -> Dict[str, Any]:
         if not self.code or not str(self.code).strip():
             raise ValueError("Code is null or blank.")
         params = chain.get_parameter_values(self)
-        result = eval_js(self.code, chain.memory, extra=params)
+        if self.engine in ("python", "py"):
+            result = eval_python(self.code, chain.memory, extra=params)
+        else:
+            result = eval_js(self.code, chain.memory, extra=params)
         return _normalize_code_result(result, self.output_defs)
 
 
@@ -1448,7 +1514,8 @@ class WebSearchNode(BaseNode):
 class FetchUrlNode(BaseNode):
     """抓取 URL 并抽取正文（自定义节点 fetchUrlNode）。
 
-    对齐 demo_ai_news.FetcherAgent：优先 Jina Reader，失败再 requests+strip。
+    入参 urls（数组 / 单字符串 / documents）；兼容旧参数 url / link。
+    优先 Jina Reader，失败再 requests+strip。输出 documents + 首条便捷字段。
     """
 
     def __init__(self) -> None:
@@ -1456,23 +1523,38 @@ class FetchUrlNode(BaseNode):
         self.max_chars: Optional[str] = None
 
     def execute(self, chain: Chain) -> Dict[str, Any]:
-        from src.flowgame.web.fetch import DEFAULT_MAX_CHARS, fetch_url_document
+        from src.flowgame.web.fetch import DEFAULT_MAX_CHARS, fetch_url_documents
 
-        real_url = resolve_named_field(chain, self, "url", None)
-        if not (real_url or "").strip():
-            # 兼容引用搜索结果其它字段名
-            real_url = resolve_named_field(chain, self, "link", None)
-        hint_title = resolve_named_field(chain, self, "title", None)
+        raw_urls = _resolve_node_param(chain, self, "urls")
+        if raw_urls is None:
+            raw_urls = _resolve_node_param(chain, self, "url")
+        if raw_urls is None:
+            raw_urls = _resolve_node_param(chain, self, "link")
+        if raw_urls is None:
+            # 兼容直接引用 documents
+            raw_urls = _resolve_node_param(chain, self, "documents")
+
+        hint_title = _resolve_node_param(chain, self, "title")
+        hint_titles: List[Optional[str]] = []
+        if isinstance(raw_urls, (list, tuple)):
+            for item in raw_urls:
+                if isinstance(item, dict) and item.get("title"):
+                    hint_titles.append(str(item.get("title")))
+                else:
+                    hint_titles.append(None)
+        elif hint_title:
+            hint_titles = [str(hint_title)]
+
         max_chars = DEFAULT_MAX_CHARS
         if self.max_chars:
             try:
                 max_chars = int(float(str(self.max_chars)))
             except (TypeError, ValueError):
                 pass
-        return fetch_url_document(
-            str(real_url or "").strip(),
+        return fetch_url_documents(
+            raw_urls,
             max_chars=max_chars,
-            hint_title=str(hint_title).strip() if hint_title else None,
+            hint_titles=hint_titles or None,
         )
 
 

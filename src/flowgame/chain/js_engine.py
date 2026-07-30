@@ -203,19 +203,33 @@ try {
     return payload.get("result")
 
 
-def _eval_as_python(code: str, bindings: Dict[str, Any]) -> Any:
-    """无 JS 引擎时尝试按 Python 执行（仅适合简单表达式）。"""
+def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> Any:
+    """
+    执行动态 Python：
+    - 优先当作表达式 eval（无 builtins）
+    - 失败则 exec；约定把输出赋给 result，否则返回局部变量 dict
+    入参来自节点参数与上游 memory，注入为局部变量。
+    """
+    bindings = _bindings_from_chain_memory(memory, extra)
+    stripped = (code or "").strip()
+    if not stripped:
+        return None
     local_vars = dict(bindings)
     try:
-        return eval(code, {"__builtins__": {}}, local_vars)
+        return eval(stripped, {"__builtins__": {}}, local_vars)
     except SyntaxError:
         exec_globals = {"__builtins__": __builtins__}
         exec_globals.update(bindings)
         local_result: Dict[str, Any] = {}
-        exec(code, exec_globals, local_result)
+        exec(stripped, exec_globals, local_result)
         if "result" in local_result:
             return local_result["result"]
         return local_result
+
+
+def _eval_as_python(code: str, bindings: Dict[str, Any]) -> Any:
+    """无 JS 引擎时的备选路径（兼容旧调用）。"""
+    return eval_python(code, bindings, None)
 
 
 def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = None) -> Any:
@@ -260,7 +274,7 @@ def eval_js(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None = No
         )
 
     try:
-        return _eval_as_python(stripped, bindings)
+        return eval_python(stripped, bindings)
     except Exception as exc:
         raise RuntimeError(
             "动态代码执行失败：本机 py-mini-racer 原生库不可用，且代码无法按 Python 解析。"

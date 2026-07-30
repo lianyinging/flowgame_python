@@ -306,12 +306,11 @@ class ChainParser:
 
     def _parse_code(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
         data = get_data(node_object)
-        engine = (data.get("engine") or "qlexpress").lower()
-        if engine in ("js", "javascript"):
-            node = CodeNode("js")
-        elif engine == "groovy":
-            node = CodeNode("js")
+        engine = (data.get("engine") or "js").strip().lower()
+        if engine in ("python", "py"):
+            node = CodeNode("python")
         else:
+            # js / javascript，以及历史 groovy、qlexpress 均按 JavaScript 执行
             node = CodeNode("js")
         node.code = data.get("code")
         node.set_parameters(parse_parameters(data))

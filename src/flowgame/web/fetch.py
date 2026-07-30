@@ -10,10 +10,12 @@ import html
 import logging
 import os
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 from urllib.parse import urlparse
 
+import json
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -299,4 +301,141 @@ def fetch_url_document(
     result["content"] = body
     result["fetchMethod"] = method
     result["errorMessage"] = ""
+    return result
+
+
+def _extract_url_from_item(item: Any) -> str:
+    if item is None:
+        return ""
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in ("url", "link", "href"):
+            raw = item.get(key)
+            if raw is not None and str(raw).strip():
+                return str(raw).strip()
+    return str(item).strip() if item is not None else ""
+
+
+def normalize_fetch_urls(raw: Any, *, max_urls: int = 20) -> List[str]:
+    """
+    归一化网页抓取入参：
+    - 单字符串 URL
+    - 字符串数组
+    - 含 url/link 的对象数组（如网页搜索 documents）
+    - JSON / 换行 / 逗号分隔的字符串
+    """
+    if raw is None:
+        return []
+
+    items: List[Any]
+    if isinstance(raw, (list, tuple)):
+        items = list(raw)
+    elif isinstance(raw, dict):
+        # 单文档对象
+        items = [raw]
+    else:
+        text = str(raw).strip()
+        if not text:
+            return []
+        if text.startswith("[") or text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+                return normalize_fetch_urls(parsed, max_urls=max_urls)
+            except json.JSONDecodeError:
+                pass
+        if "\n" in text:
+            items = [line.strip() for line in text.splitlines() if line.strip()]
+        elif "," in text and "://" in text:
+            parts = [p.strip() for p in text.split(",") if p.strip()]
+            items = parts if len(parts) > 1 else [text]
+        else:
+            items = [text]
+
+    urls: List[str] = []
+    seen = set()
+    for item in items:
+        url = _extract_url_from_item(item)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        urls.append(url)
+        if len(urls) >= max(1, int(max_urls or 20)):
+            break
+    return urls
+
+
+def fetch_url_documents(
+    urls: Union[str, Sequence[Any], None],
+    *,
+    max_chars: int = DEFAULT_MAX_CHARS,
+    timeout: int = DEFAULT_TIMEOUT,
+    hint_titles: Optional[Sequence[Optional[str]]] = None,
+    max_workers: int = 3,
+) -> Dict[str, Any]:
+    """
+    批量抓取。返回：
+    - documents: 每条抓取结果（与单条 fetch_url_document 字段一致）
+    - title/content/url/...: 首条便捷字段（对齐网页搜索节点）
+    - errorMessage: 失败信息汇总
+    """
+    targets = normalize_fetch_urls(urls)
+    result: Dict[str, Any] = {
+        "documents": [],
+        "title": "",
+        "content": "",
+        "url": "",
+        "statusCode": 0,
+        "contentType": "",
+        "fetchMethod": "",
+        "errorMessage": "",
+    }
+    if not targets:
+        result["errorMessage"] = "URL 列表为空"
+        return result
+
+    titles = list(hint_titles or [])
+    documents: List[Dict[str, Any]] = [{} for _ in targets]
+    workers = max(1, min(int(max_workers or 3), len(targets)))
+
+    def _job(index: int, url: str) -> tuple[int, Dict[str, Any]]:
+        hint = titles[index] if index < len(titles) else None
+        return index, fetch_url_document(
+            url,
+            max_chars=max_chars,
+            timeout=timeout,
+            hint_title=str(hint).strip() if hint else None,
+        )
+
+    if workers == 1:
+        for i, url in enumerate(targets):
+            _, doc = _job(i, url)
+            documents[i] = doc
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_job, i, url) for i, url in enumerate(targets)]
+            for fut in as_completed(futures):
+                idx, doc = fut.result()
+                documents[idx] = doc
+
+    result["documents"] = documents
+    errors = [
+        f"{d.get('url') or ''}: {d.get('errorMessage')}".strip(": ")
+        for d in documents
+        if (d.get("errorMessage") or "").strip()
+    ]
+    result["errorMessage"] = "; ".join(errors)
+
+    first = documents[0] if documents else {}
+    if isinstance(first, dict):
+        for key in (
+            "title",
+            "content",
+            "url",
+            "statusCode",
+            "contentType",
+            "fetchMethod",
+        ):
+            if first.get(key) is not None:
+                result[key] = first[key]
     return result
