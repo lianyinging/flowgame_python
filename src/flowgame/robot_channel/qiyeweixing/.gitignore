@@ -1,0 +1,4 @@
+.last_chatid
+.env
+__pycache__/
+*.pyc

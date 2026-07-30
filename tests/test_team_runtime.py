@@ -130,6 +130,11 @@ class TeamRuntimeTests(unittest.TestCase):
                 result = runtime.run({"topic": "测试"})
         self.assertEqual(result.status, "success")
         self.assertEqual(len(result.trace), 2)
+        self.assertTrue(result.blackboard.get("runtimeSpace"))
+        self.assertTrue(result.blackboard.get("runId"))
+        from pathlib import Path
+
+        self.assertTrue(Path(str(result.blackboard["runtimeSpace"])).is_dir())
 
     def test_extract_slim_end_output_writes_menu_content(self):
         """Agent 流程关闭过程详情时，顶层 menuContent 必须写回黑板。"""

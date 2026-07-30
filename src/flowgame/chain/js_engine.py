@@ -209,7 +209,23 @@ def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None 
     - 优先当作表达式 eval（无 builtins）
     - 失败则 exec；约定把输出赋给 result，否则返回局部变量 dict
     入参来自节点参数与上游 memory，注入为局部变量。
+
+    会自动把媒体/机器人渠道目录加入 ``sys.path``，
+    以便 ``from scripts import feed``、``from wecom import aibot`` 等调用。
     """
+    try:
+        from src.flowgame.media_channel.xiaohongshu import ensure_scripts_import_path
+
+        ensure_scripts_import_path()
+    except Exception:  # noqa: BLE001
+        logger.debug("media_channel path inject skipped", exc_info=True)
+    try:
+        from src.flowgame.robot_channel.qiyeweixing import ensure_wecom_import_path
+
+        ensure_wecom_import_path()
+    except Exception:  # noqa: BLE001
+        logger.debug("robot_channel wecom path inject skipped", exc_info=True)
+
     bindings = _bindings_from_chain_memory(memory, extra)
     stripped = (code or "").strip()
     if not stripped:

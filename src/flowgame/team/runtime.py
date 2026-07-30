@@ -98,6 +98,9 @@ class TeamRuntime:
         "content",
         "review",
         "article",
+        # 本次运行工作目录
+        "runtimeSpace",
+        "runId",
     ]
 
     def __init__(
@@ -527,12 +530,38 @@ class TeamRuntime:
         if not str(self.state.get("topic") or "").strip():
             raise TeamRuntimeError("variables.topic 不能为空")
 
+        # 为本次运行创建临时工作目录，路径写入黑板供子 Agent / 后续 WebSocket 使用
+        try:
+            from src.flowgame.runtime_space import (
+                BLACKBOARD_RUN_ID,
+                BLACKBOARD_RUNTIME_SPACE,
+                create_team_runtime_dir,
+            )
+
+            # 允许调用方预传 runId；未传则自动生成
+            preset_run_id = str(self.state.get(BLACKBOARD_RUN_ID) or "").strip() or None
+            run_id, space_path = create_team_runtime_dir(
+                self.team.teamKey or "team",
+                run_id=preset_run_id,
+            )
+            self.state[BLACKBOARD_RUN_ID] = run_id
+            self.state[BLACKBOARD_RUNTIME_SPACE] = str(space_path)
+        except OSError as exc:
+            raise TeamRuntimeError(f"创建 runtimeSpace 失败: {exc}") from exc
+
         self.trace = []
         self._same_agent_streak = 0
         self._last_agent = None
         strategy = self.team.strategy
 
-        self._emit("team_started", teamKey=self.team.teamKey, strategy=strategy, state=dict(self.state))
+        self._emit(
+            "team_started",
+            teamKey=self.team.teamKey,
+            strategy=strategy,
+            state=dict(self.state),
+            runId=self.state.get("runId"),
+            runtimeSpace=self.state.get("runtimeSpace"),
+        )
 
         if strategy == "sequential":
             return self._run_sequential()
