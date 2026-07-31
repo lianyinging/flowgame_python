@@ -35,6 +35,7 @@
 
 - **工作流执行**：同步 `POST /execute` 与 NDJSON 流式 `POST /execute/stream`（编辑器试运行进度）
 - **多 Agent Team**：`POST /teams/run`（主控 supervisor / 顺序 sequential；无画布流程时回退内置 Prompt）
+- **会话机器人**：独立 Robot Worker 监听企微；API ` /robots*` 只写启停意图。本地 `python run.py` 自动拉起 Worker，可多 workers
 - **Redis 流程存储**：流程列表、按 `methodKey` 加载与保存工作流 JSON
 - **Qdrant 知识库**：Collection 管理、文档入库、向量检索（RAG）
 - **Embedding 可插拔**：HTTP 向量服务或本地 BGE 模型
@@ -70,6 +71,7 @@ cp .env.dev.example .env.dev       # 可选：开发/测试环境
 ```bash
 playwright install chromium
 # 脚本目录：src/flowgame/playwright_scripts/
+# HTML→PDF 工具：src/flowgame/tools/html2pdf/（动态代码 from html2pdf import convert）
 ```
 
 ### 2. 启动服务

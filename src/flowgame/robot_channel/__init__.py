@@ -1,1 +1,2 @@
-"""机器人渠道包（企业微信等）。"""
+"""机器人渠道：企微 SDK + 会话机器人管理。"""
+from __future__ import annotations

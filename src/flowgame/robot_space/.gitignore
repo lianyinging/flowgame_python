@@ -1,0 +1,9 @@
+# 渠道目录可提交占位；机器人实例工作区不入库
+qiyeweixing/**
+!qiyeweixing/.gitkeep
+*
+!__init__.py
+!README.md
+!.gitignore
+!qiyeweixing/
+!qiyeweixing/.gitkeep

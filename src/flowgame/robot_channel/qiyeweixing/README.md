@@ -131,3 +131,20 @@ qiyeweixing/
 - 移植自：`/Users/lianying/Desktop/神经网络/我的项目/工具/企业微信`  
 - 升级上游时：对照 `aibot_ws_receiver.py` / `test_wecom_bot.py` 同步 `wecom/`，并核对本 README / skill.md  
 - 联调优先查：环境变量是否加载、chatid 是否正确、动态代码是否多行且赋了 `result`
+
+---
+
+## 会话机器人（编辑器业务工具）
+
+管理端「业务工具 → 会话机器人」可配置企微智能机器人、绑定流程与入出参映射，并**启动/停用**。
+
+- **监听进程**：独立 `Robot Worker`（与 API 同仓库）
+- **本地一键**：`APP_ENV=dev python run.py` 会自动拉起 Worker（`FLOWGAME_ROBOT_AUTOSTART=true`）
+- **单独运行**：`python -m src.flowgame.robot_channel.worker`
+- **API 多 workers**：安全；监听只在 Worker 单实例里
+- 收到消息后 Worker 按映射调用 `POST /execute`，再按输出映射回发：
+  - `reply_markdown` / `reply_text` → 文字
+  - `reply_file` → 本地文件路径（可数组）；与文字同时有时 **先文后文件**
+- 启动时创建工作空间：`robot_space/qiyeweixing/{robotId}/`，流程变量注入 `robotSpace`
+
+相关代码：`src/flowgame/robot_channel/`（`store` / `runtime` / `worker` / `spawn` / `router`）。

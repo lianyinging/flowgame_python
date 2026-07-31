@@ -5,15 +5,16 @@ FlowGame 独立 FastAPI 应用入口。
 
     uvicorn src.flowgame.app:app --host 0.0.0.0 --port 8001 --reload
 
-接口前缀默认为 ``/api/v1/flowGame``，例如：
+本地一键（API + Robot Worker）::
 
-- POST /api/v1/flowGame/execute
-- GET  /api/v1/flowGame/redis?redisKey=...
-- GET  /api/v1/flowGame/qdrant/collections
+    APP_ENV=dev python run.py
+
+接口前缀默认为 ``/api/v1/flowGame``。
 """
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from src.flowgame.settings import load_flowgame_dotenv
 
@@ -32,10 +33,18 @@ from src.flowgame.constants import API_PREFIX
 from src.flowgame.prefix_middleware import FlowgameKeyPrefixMiddleware
 from src.flowgame.registry import register_routes
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # 监听由独立 Robot Worker 负责，API 进程不再 restore WebSocket
+    yield
+
+
 app = FastAPI(
     title="FlowGame API",
     description="Tinyflow 工作流编排、Redis 与 Qdrant 管理接口",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -67,25 +76,35 @@ async def root():
 def start_server() -> None:
     import uvicorn
 
+    from src.flowgame.robot_channel.spawn import (
+        start_embedded_robot_worker,
+        stop_embedded_robot_worker,
+    )
+
     host = os.getenv("FLOWGAME_HOST", "0.0.0.0")
     port = int(os.getenv("FLOWGAME_PORT", "8001"))
     workers = int(os.getenv("FLOWGAME_UVICORN_WORKERS", "1"))
     reload_env = os.getenv("FLOWGAME_RELOAD", "true").strip().lower()
     reload = reload_env in ("1", "true", "yes")
 
-    if workers > 1:
-        if reload:
-            reload = False
-        uvicorn.run(
-            "src.flowgame.app:app",
-            host=host,
-            port=port,
-            workers=workers,
-            reload=False,
-        )
-        return
+    # 一条命令同时拉起独立 Robot Worker（可用 FLOWGAME_ROBOT_AUTOSTART=false 关闭）
+    start_embedded_robot_worker(api_port=port)
 
-    uvicorn.run("src.flowgame.app:app", host=host, port=port, reload=reload)
+    try:
+        if workers > 1:
+            if reload:
+                reload = False
+            uvicorn.run(
+                "src.flowgame.app:app",
+                host=host,
+                port=port,
+                workers=workers,
+                reload=False,
+            )
+        else:
+            uvicorn.run("src.flowgame.app:app", host=host, port=port, reload=reload)
+    finally:
+        stop_embedded_robot_worker()
 
 
 if __name__ == "__main__":

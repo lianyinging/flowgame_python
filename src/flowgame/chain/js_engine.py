@@ -210,8 +210,9 @@ def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None 
     - 失败则 exec；约定把输出赋给 result，否则返回局部变量 dict
     入参来自节点参数与上游 memory，注入为局部变量。
 
-    会自动把媒体/机器人渠道目录加入 ``sys.path``，
-    以便 ``from scripts import feed``、``from wecom import aibot`` 等调用。
+    会自动把媒体/机器人渠道与工具目录加入 ``sys.path``，
+    以便 ``from scripts import feed``、``from wecom import aibot``、
+    ``from html2pdf import convert`` 等调用。
     """
     try:
         from src.flowgame.media_channel.xiaohongshu import ensure_scripts_import_path
@@ -225,6 +226,12 @@ def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None 
         ensure_wecom_import_path()
     except Exception:  # noqa: BLE001
         logger.debug("robot_channel wecom path inject skipped", exc_info=True)
+    try:
+        from src.flowgame.tools.html2pdf import ensure_html2pdf_import_path
+
+        ensure_html2pdf_import_path()
+    except Exception:  # noqa: BLE001
+        logger.debug("tools html2pdf path inject skipped", exc_info=True)
 
     bindings = _bindings_from_chain_memory(memory, extra)
     stripped = (code or "").strip()
