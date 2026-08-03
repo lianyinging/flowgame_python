@@ -24,20 +24,21 @@ class NormalizeEnginesTest(unittest.TestCase):
             ["qq_news"],
         )
 
-    def test_array_and_csv(self):
+    def test_array_and_csv_legacy_fallback(self):
+        # 节点仅保留腾讯新闻；历史引擎 id 忽略后回退默认
         self.assertEqual(
             normalize_engines(["wikipedia", "duckduckgo", "wikipedia"]),
-            ["wikipedia", "duckduckgo"],
+            ["qq_news"],
         )
         self.assertEqual(
             normalize_engines("google_news,duckduckgo"),
-            ["google_news", "duckduckgo"],
+            ["qq_news"],
         )
 
-    def test_json_string(self):
+    def test_json_string_legacy_fallback(self):
         self.assertEqual(
             normalize_engines('["wikipedia","duckduckgo"]'),
-            ["wikipedia", "duckduckgo"],
+            ["qq_news"],
         )
 
     def test_legacy_paid_ignored(self):
@@ -46,11 +47,12 @@ class NormalizeEnginesTest(unittest.TestCase):
             ["qq_news"],
         )
 
-    def test_playwright_engines_allowed(self):
+    def test_only_qq_news_allowed(self):
         self.assertEqual(
             normalize_engines(["qq_news", "sina_news", "duckduckgo"]),
-            ["qq_news", "sina_news", "duckduckgo"],
+            ["qq_news"],
         )
+        self.assertEqual(normalize_engines(["qq_news"]), ["qq_news"])
 
 
 class TopicRssFeedsTest(unittest.TestCase):
@@ -78,28 +80,28 @@ class HtmlToTextTest(unittest.TestCase):
 
 
 class SearchWebTest(unittest.TestCase):
-    @patch("src.flowgame.web.search.search_duckduckgo")
-    def test_merge_dedupe(self, mock_ddg):
-        mock_ddg.return_value = [
+    @patch("src.flowgame.web.search.search_qq_news")
+    def test_merge_dedupe(self, mock_qq):
+        mock_qq.return_value = [
             {
                 "title": "A",
                 "content": "a",
                 "url": "https://example.com/a",
-                "engine": "duckduckgo",
+                "engine": "qq_news",
             },
             {
                 "title": "A2",
                 "content": "a2",
                 "url": "https://example.com/a?x=1",
-                "engine": "duckduckgo",
+                "engine": "qq_news",
             },
         ]
-        result = search_web("query", engines=["duckduckgo"], limit=10)
+        result = search_web("query", engines=["qq_news"], limit=10)
         self.assertEqual(len(result["documents"]), 1)
         self.assertEqual(result["documents"][0]["title"], "A")
 
     def test_empty_keyword(self):
-        result = search_web("  ", engines=["duckduckgo"], limit=5)
+        result = search_web("  ", engines=["qq_news"], limit=5)
         self.assertEqual(result["documents"], [])
         self.assertTrue(result["errors"])
 

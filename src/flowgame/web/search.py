@@ -1,12 +1,7 @@
-"""Multi-engine web search with merge / URL dedupe.
+"""Web search with merge / URL dedupe.
 
-对齐 experiments/loop_agent/demo_ai_news.py 的 Scout 策略：
-  - Google News / HN 等主题 RSS（免费、无 Key）
-  - DuckDuckGo HTML 网页搜索（免费、无 Key）
-  - 可选 Wikipedia
-  - 可选 Playwright：腾讯新闻 / 新浪新闻（见 playwright_scripts/）
-
-默认通道免费、无需 API Key；Playwright 渠道需额外安装浏览器。
+网页搜索节点当前仅开放腾讯新闻（Playwright，``qq_news``）。
+其它历史引擎 id 在 normalize 时忽略并回退默认。
 """
 from __future__ import annotations
 
@@ -27,15 +22,19 @@ USER_AGENT = (
     "Mozilla/5.0 (compatible; FlowGameBot/1.0; +https://flowgame.mgdeep.com)"
 )
 DEFAULT_TIMEOUT = 20
-# 默认与 demo Scout 一致：RSS + DuckDuckGo；Playwright 为可选勾选
-ALLOWED_ENGINES = (
-    "google_news",
-    "duckduckgo",
-    "wikipedia",
-    "qq_news",
-    "sina_news",
+# 节点可选引擎：仅腾讯新闻
+ALLOWED_ENGINES = ("qq_news",)
+# 历史引擎（付费或已下架），normalize 时忽略
+LEGACY_PAID_ENGINES = frozenset(
+    {
+        "tavily",
+        "bing",
+        "google_news",
+        "duckduckgo",
+        "wikipedia",
+        "sina_news",
+    }
 )
-LEGACY_PAID_ENGINES = frozenset({"tavily", "bing"})
 DEFAULT_ENGINES = ["qq_news"]
 
 

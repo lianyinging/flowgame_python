@@ -1,12 +1,14 @@
-# AgentTeam 临时 Runtime 空间
+# AgentTeam / 数字员工临时 Runtime 空间
 
 每次 `POST /teams/run` 启动时会在 `runs/` 下创建：
 
 ```text
 {teamKey}_{UTC时间}_{runId}/
-  README.txt
+  .runtime_workspace     # 工作区标记 + 本次运行元数据（JSON）
   （子 Agent 工作成果文件）
 ```
+
+`.runtime_workspace` 示例字段：`schema`、`kind=digital_employee_run`、`teamKey`、`runId`、`runtimeSpace`、`createdAt`。
 
 黑板写入：
 

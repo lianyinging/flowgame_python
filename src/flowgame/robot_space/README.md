@@ -6,10 +6,14 @@
 robot_space/
   qiyeweixing/           # 渠道（企业微信智能机器人）
     {robotId}/           # 该机器人工作空间
+      .robot_workspace   # JSON 元数据标记
 ```
 
 - 渠道目录已存在则不再「新建」（`mkdir(exist_ok=True)`）
 - 仅保证 `{robotId}` 目录存在
+- `.robot_workspace` 为 JSON（旧纯文本标记会在下次 ensure 时升级）
+
+`.robot_workspace` 示例字段：`schema`、`kind=session_robot_workspace`、`robotId`、`robotType`、`channel`、`robotSpace`、`createdAt`。
 
 流程执行时会注入变量：
 

@@ -1,16 +1,17 @@
 """AgentTeam 临时运行时工作目录。
 
 每次 Team 启动时在此目录下创建独立子目录，路径写入黑板 `runtimeSpace`，
-供子 Agent 落盘工作成果；后续可通过 WebSocket 等通道对外推送。
+供子 Agent / 数字员工落盘工作成果；后续可通过 WebSocket 等通道对外推送。
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 # 本包目录：.../src/flowgame/runtime_space
 _PACKAGE_DIR = Path(__file__).resolve().parent
@@ -21,6 +22,9 @@ _REPO_ROOT = _PACKAGE_DIR.parents[2]
 # 黑板键（camelCase，与 menuContent 等一致）
 BLACKBOARD_RUNTIME_SPACE = "runtimeSpace"
 BLACKBOARD_RUN_ID = "runId"
+
+# 每次运行目录内的标记/元数据文件（点文件，标识本目录为数字员工工作区）
+RUN_META_FILENAME = ".runtime_workspace"
 
 
 def get_runtime_space_root() -> Path:
@@ -48,12 +52,41 @@ def _safe_segment(text: str, max_len: int = 48) -> str:
     return (s or "team")[:max_len]
 
 
+def build_run_meta(
+    *,
+    team_key: str,
+    run_id: str,
+    runtime_space: Path,
+    created_at: Optional[str] = None,
+) -> Dict[str, Any]:
+    """构造一次数字员工（AgentTeam）运行的元数据。"""
+    return {
+        "schema": "flowgame.digital_employee.run_meta/v1",
+        "kind": "digital_employee_run",
+        "teamKey": team_key,
+        "runId": run_id,
+        "runtimeSpace": str(runtime_space.resolve()),
+        "createdAt": created_at or datetime.now(timezone.utc).isoformat(),
+        "note": "本目录为本数字员工（AgentTeam）单次任务工作区；子流程产出文件请写在此目录下。",
+    }
+
+
+def write_run_meta(path: Path, meta: Dict[str, Any]) -> Path:
+    """写入 ``.runtime_workspace``，返回文件路径。"""
+    dest = path / RUN_META_FILENAME
+    dest.write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return dest
+
+
 def create_team_runtime_dir(
     team_key: str,
     *,
     run_id: Optional[str] = None,
 ) -> Tuple[str, Path]:
-    """为一次 Team 运行创建独立目录。
+    """为一次 Team / 数字员工运行创建独立目录。
 
     Returns:
         (run_id, absolute_path)
@@ -63,13 +96,8 @@ def create_team_runtime_dir(
     name = f"{_safe_segment(team_key)}_{stamp}_{rid}"
     path = get_runtime_space_root() / name
     path.mkdir(parents=True, exist_ok=False)
-    # 占位说明，方便人工查看
-    readme = path / "README.txt"
-    readme.write_text(
-        f"FlowGame AgentTeam runtime workspace\n"
-        f"teamKey={team_key}\n"
-        f"runId={rid}\n"
-        f"createdAt={datetime.now(timezone.utc).isoformat()}\n",
-        encoding="utf-8",
+    write_run_meta(
+        path,
+        build_run_meta(team_key=team_key, run_id=rid, runtime_space=path),
     )
-    return rid, path
+    return rid, path.resolve()

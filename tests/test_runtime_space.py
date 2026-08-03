@@ -10,6 +10,7 @@ from pathlib import Path
 from src.flowgame.runtime_space import (
     BLACKBOARD_RUN_ID,
     BLACKBOARD_RUNTIME_SPACE,
+    RUN_META_FILENAME,
     create_team_runtime_dir,
     get_runtime_space_root,
 )
@@ -34,7 +35,16 @@ class RuntimeSpaceTests(unittest.TestCase):
         run_id, path = create_team_runtime_dir("qbhq-1")
         self.assertTrue(path.is_dir())
         self.assertTrue(path.is_relative_to(root) or str(path).startswith(str(root)))
-        self.assertTrue((path / "README.txt").is_file())
+        meta_path = path / RUN_META_FILENAME
+        self.assertTrue(meta_path.is_file())
+        self.assertFalse((path / "README.txt").exists())
+        self.assertFalse((path / "run.meta.json").exists())
+        import json
+
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        self.assertEqual(meta["kind"], "digital_employee_run")
+        self.assertEqual(meta["teamKey"], "qbhq-1")
+        self.assertEqual(meta["runId"], run_id)
         self.assertEqual(len(run_id), 12)
         self.assertIn(BLACKBOARD_RUNTIME_SPACE, ("runtimeSpace",))
         self.assertIn(BLACKBOARD_RUN_ID, ("runId",))

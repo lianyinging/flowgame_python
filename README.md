@@ -66,7 +66,7 @@ cp .env.example .env               # 生产/默认环境
 cp .env.dev.example .env.dev       # 可选：开发/测试环境
 ```
 
-网页搜索 Playwright 渠道（腾讯新闻 `qq_news` / 新浪新闻 `sina_news`）已含在 `requirements.txt`；本地还需下载浏览器（Docker 镜像构建时已执行）：
+网页搜索 Playwright 渠道（腾讯新闻 `qq_news`）已含在 `requirements.txt`；本地还需下载浏览器（Docker 镜像构建时已执行）：
 
 ```bash
 playwright install chromium

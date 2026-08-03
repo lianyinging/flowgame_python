@@ -37,11 +37,13 @@ BASE_HREF_RE = re.compile(r"<base\s+href\s*=", re.IGNORECASE)
 
 
 def get_default_output_dir() -> Path:
-    """默认 PDF 输出目录。
+    """默认 PDF 输出目录（仅当调用方未指定 output / output_dir）。
 
     环境变量 ``FLOWGAME_HTML2PDF_OUTPUT_DIR`` 可覆盖；
-    默认：本包下 ``output/``。
+    默认：系统临时目录下的 ``flowgame_html2pdf/``（不在 tools 包内建 output/）。
     """
+    import tempfile
+
     raw = (os.getenv("FLOWGAME_HTML2PDF_OUTPUT_DIR") or "").strip()
     if raw:
         path = Path(raw).expanduser()
@@ -50,13 +52,35 @@ def get_default_output_dir() -> Path:
         else:
             path = path.resolve()
     else:
-        path = (_PACKAGE_DIR / "output").resolve()
+        path = (Path(tempfile.gettempdir()) / "flowgame_html2pdf").resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
-# 兼容旧测试/CLI 命名
-URL_OUTPUT_DIR = get_default_output_dir()
+def _legacy_url_output_dir() -> Path:
+    """兼容旧名 URL_OUTPUT_DIR：与 get_default_output_dir 相同。"""
+    return get_default_output_dir()
+
+
+# 兼容旧测试/CLI：惰性属性风格，避免 import 时立刻 mkdir
+class _UrlOutputDirProxy:
+    def __fspath__(self) -> str:
+        return str(get_default_output_dir())
+
+    def __truediv__(self, other):  # type: ignore[no-untyped-def]
+        return get_default_output_dir() / other
+
+    def __eq__(self, other: object) -> bool:
+        return get_default_output_dir() == other
+
+    def __repr__(self) -> str:
+        return repr(get_default_output_dir())
+
+    def resolve(self) -> Path:
+        return get_default_output_dir()
+
+
+URL_OUTPUT_DIR = _UrlOutputDirProxy()  # type: ignore[assignment]
 
 
 @dataclass
@@ -565,7 +589,7 @@ def convert_html(
     """
     将 HTML **字符串**转为 PDF。
 
-    ``output`` 未指定时写入 ``output_dir``（或默认 output/）下的随机文件名。
+    ``output`` 未指定时写入 ``output_dir``（或系统临时目录 flowgame_html2pdf/）下的随机文件名。
     """
     if output is not None:
         output_path = Path(output).expanduser().resolve()
@@ -624,7 +648,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         "-o",
         "--output",
         type=Path,
-        help="输出 PDF 路径（默认：本地 HTML 同级；URL/字符串到 output/）",
+        help="输出 PDF 路径（默认：本地 HTML 同级；URL/字符串到临时目录或 FLOWGAME_HTML2PDF_OUTPUT_DIR）",
     )
     parser.add_argument(
         "--format",

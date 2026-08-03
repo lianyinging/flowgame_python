@@ -232,6 +232,12 @@ def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None 
         ensure_html2pdf_import_path()
     except Exception:  # noqa: BLE001
         logger.debug("tools html2pdf path inject skipped", exc_info=True)
+    try:
+        from src.flowgame.tools.web_search import ensure_web_search_import_path
+
+        ensure_web_search_import_path()
+    except Exception:  # noqa: BLE001
+        logger.debug("tools web_search path inject skipped", exc_info=True)
 
     bindings = _bindings_from_chain_memory(memory, extra)
     stripped = (code or "").strip()
