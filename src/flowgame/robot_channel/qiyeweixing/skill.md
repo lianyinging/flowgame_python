@@ -20,11 +20,13 @@ description: >
 6. 官方限制：image / file / video / voice 入站回调目前主要支持**单聊**；群聊里发文件通常收不到。
 7. 若上下文有黑板变量 `runtimeSpace`，下载/中间产物可拷到该目录。
 8. 群 Webhook 约 **20 条/分钟**限流，勿刷屏。
+9. **会话机器人绑 AgentTeam** 时：黑板/流程变量通常已有 `chatId`、`robotId`、`robotSpace`、`botId`、`wecomBotSecret`。`aibot.send_*` 默认 `via=auto`：有 `robotId` 且 Worker 在线时走 **Worker 长连接队列**（不重复建连），否则回退短连；可显式 `via="worker"` / `via="direct"`。
 
 ## 调用环境（已由后端注入）
 
 - `sys.path` 已含 `robot_channel/qiyeweixing`，故 `from wecom import aibot` 可用。
 - 依赖：`wecom-aibot-sdk`、`requests`、`typing_extensions`（Python 3.10 需要）。
+- 机器人触发的 Team 子流程：可用局部变量 `chatId` / `robotSpace` / `botId` / `wecomBotSecret`。
 
 ## 选型
 
@@ -32,10 +34,27 @@ description: >
 |------|-----|
 | 只要往群里推一条通知 | `webhook.send_text` / `webhook.send_markdown` |
 | 要发到指定会话、发文件、或要收消息 | `aibot.*` |
+| 会话机器人 Team/流程中途推送 | `aibot.send_markdown(..., chatid=chatId)`（默认优先 Worker 队列） |
 
 ---
 
 ## API 速查与可粘贴代码
+
+### 会话机器人 Team 场景 — 用黑板上的 chatId
+
+```python
+from wecom import aibot
+
+# 默认 via=auto：有 robotId 且 Worker 在线 → 走 Worker 长连接队列；否则短连
+result = aibot.send_markdown(
+    "阶段完成：已写入 runtimeSpace",
+    chatid=str(chatId),
+)
+
+# 强制 Worker 队列 / 强制短连：
+# result = aibot.send_markdown("...", chatid=str(chatId), via="worker")
+# result = aibot.send_markdown("...", chatid=str(chatId), via="direct")
+```
 
 ### webhook — 群机器人推送
 

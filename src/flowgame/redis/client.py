@@ -176,6 +176,37 @@ class FlowgameRedisClient:
             logger.error("Redis rpush 失败 [%s]: %s", key, exc)
             return 0
 
+    def lpush(self, key: str, value: str) -> int:
+        if not self._ensure_connected():
+            return 0
+        try:
+            return int(self._client.lpush(key, value))
+        except Exception as exc:
+            logger.error("Redis lpush 失败 [%s]: %s", key, exc)
+            return 0
+
+    def brpop(self, key: str, timeout: int = 1) -> Optional[Any]:
+        """阻塞从列表右侧弹出；超时返回 None。"""
+        if not self._ensure_connected():
+            return None
+        try:
+            item = self._client.brpop(key, timeout=max(1, int(timeout)))
+            return item
+        except Exception as exc:
+            logger.error("Redis brpop 失败 [%s]: %s", key, exc)
+            return None
+
+    def blpop(self, key: str, timeout: int = 1) -> Optional[Any]:
+        """阻塞从列表左侧弹出；超时返回 None。"""
+        if not self._ensure_connected():
+            return None
+        try:
+            item = self._client.blpop(key, timeout=max(1, int(timeout)))
+            return item
+        except Exception as exc:
+            logger.error("Redis blpop 失败 [%s]: %s", key, exc)
+            return None
+
     def llen(self, key: str) -> int:
         if not self._ensure_connected():
             return 0

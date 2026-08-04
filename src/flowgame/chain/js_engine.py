@@ -243,17 +243,38 @@ def eval_python(code: str, memory: Dict[str, Any], extra: Dict[str, Any] | None 
     stripped = (code or "").strip()
     if not stripped:
         return None
-    local_vars = dict(bindings)
+
+    # 会话机器人触发时：把 blackboard 凭证注入 env，供 aibot via=auto 走 Worker 队列
+    import os
+
+    env_map = {
+        "FLOWGAME_ROBOT_ID": bindings.get("robotId"),
+        "FLOWGAME_WECOM_CHATID": bindings.get("chatId"),
+        "FLOWGAME_WECOM_BOT_ID": bindings.get("botId"),
+        "FLOWGAME_WECOM_BOT_SECRET": bindings.get("wecomBotSecret"),
+    }
+    saved_env = {k: os.environ.get(k) for k in env_map}
     try:
-        return eval(stripped, {"__builtins__": {}}, local_vars)
-    except SyntaxError:
-        exec_globals = {"__builtins__": __builtins__}
-        exec_globals.update(bindings)
-        local_result: Dict[str, Any] = {}
-        exec(stripped, exec_globals, local_result)
-        if "result" in local_result:
-            return local_result["result"]
-        return local_result
+        for k, v in env_map.items():
+            if v is not None and str(v).strip():
+                os.environ[k] = str(v).strip()
+        local_vars = dict(bindings)
+        try:
+            return eval(stripped, {"__builtins__": {}}, local_vars)
+        except SyntaxError:
+            exec_globals = {"__builtins__": __builtins__}
+            exec_globals.update(bindings)
+            local_result: Dict[str, Any] = {}
+            exec(stripped, exec_globals, local_result)
+            if "result" in local_result:
+                return local_result["result"]
+            return local_result
+    finally:
+        for k, old in saved_env.items():
+            if old is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = old
 
 
 def _eval_as_python(code: str, bindings: Dict[str, Any]) -> Any:

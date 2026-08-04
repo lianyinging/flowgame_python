@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from src.flowgame.qdrant.router import qdrant_router
 from src.flowgame.redis.router import redis_router
+from src.flowgame.digital_employee.router import digital_employee_router
 from src.flowgame.robot_channel.router import robot_router
 from src.flowgame.team.router import team_router
 from src.flowgame.flow_delete import delete_saved_flow
@@ -21,6 +22,7 @@ flowgame_router = APIRouter()
 flowgame_router.include_router(redis_router, prefix="/redis", tags=["FlowGame-Redis"])
 flowgame_router.include_router(qdrant_router, prefix="/qdrant", tags=["FlowGame-Qdrant"])
 flowgame_router.include_router(team_router, tags=["FlowGame-Teams"])
+flowgame_router.include_router(digital_employee_router, tags=["FlowGame-DigitalEmployees"])
 flowgame_router.include_router(robot_router, tags=["FlowGame-Robots"])
 
 

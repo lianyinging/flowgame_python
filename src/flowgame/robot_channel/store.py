@@ -11,8 +11,10 @@ from src.flowgame.key_prefix import get_redis_key_prefix
 from src.flowgame.robot_channel.models import (
     DEFAULT_INPUT_MAPPING,
     DEFAULT_OUTPUT_MAPPING,
+    DEFAULT_TEAM_OUTPUT_MAPPING,
     SECRET_MASK,
     SessionRobot,
+    normalize_bind_type,
     normalize_mappings,
     parse_execute_timeout_sec,
 )
@@ -131,6 +133,8 @@ def list_robots() -> List[SessionRobot]:
 
 
 def save_robot(payload: Dict[str, Any]) -> SessionRobot:
+    from src.flowgame.robot_channel.models import normalize_employee_ids
+
     robot_id = str(payload.get("robotId") or "").strip() or uuid.uuid4().hex[:12]
     existing = get_robot(robot_id, include_secret=True)
 
@@ -138,10 +142,74 @@ def save_robot(payload: Dict[str, Any]) -> SessionRobot:
     if existing and (not secret or secret == SECRET_MASK):
         secret = existing.secret
 
+    router_api_key = str(payload.get("routerApiKey") or "")
+    if existing and (not router_api_key or router_api_key == SECRET_MASK):
+        router_api_key = existing.routerApiKey
+    elif "routerApiKey" not in payload and existing:
+        router_api_key = existing.routerApiKey
+
+    if "employeeIds" in payload or "employeeId" in payload:
+        employee_ids = normalize_employee_ids(
+            payload.get("employeeIds") if "employeeIds" in payload else None,
+            legacy_employee_id=str(payload.get("employeeId") or "").strip()
+            if "employeeId" in payload
+            else "",
+        )
+        # 只传 employeeId、未传 employeeIds 时：以单值覆盖
+        if "employeeIds" not in payload and "employeeId" in payload:
+            eid = str(payload.get("employeeId") or "").strip()
+            employee_ids = [eid] if eid else []
+    else:
+        employee_ids = list(existing.resolved_employee_ids()) if existing else []
+
+    if "defaultEmployeeId" in payload:
+        default_employee_id = str(payload.get("defaultEmployeeId") or "").strip()
+    else:
+        default_employee_id = existing.defaultEmployeeId if existing else ""
+    if default_employee_id and default_employee_id not in employee_ids:
+        default_employee_id = employee_ids[0] if employee_ids else ""
+    elif not default_employee_id and employee_ids:
+        default_employee_id = employee_ids[0]
+
+    if "routerBaseUrl" in payload:
+        router_base_url = str(payload.get("routerBaseUrl") or "").strip()
+    else:
+        router_base_url = existing.routerBaseUrl if existing else ""
+
+    if "routerModel" in payload:
+        router_model = str(payload.get("routerModel") or "").strip()
+    else:
+        router_model = existing.routerModel if existing else ""
+
     if "methodKey" in payload:
         method_key = str(payload.get("methodKey") or "").strip()
     else:
         method_key = existing.methodKey if existing else ""
+
+    if "teamKey" in payload:
+        team_key = str(payload.get("teamKey") or "").strip()
+    else:
+        team_key = existing.teamKey if existing else ""
+
+    if "decisionMethodKey" in payload:
+        decision_method_key = str(payload.get("decisionMethodKey") or "").strip()
+    else:
+        decision_method_key = existing.decisionMethodKey if existing else ""
+
+    if "bindType" in payload:
+        bind_type = normalize_bind_type(payload.get("bindType"))
+    elif existing:
+        bind_type = existing.bindType
+    else:
+        # 新建且显式只给了 teamKey 时推断为 team
+        bind_type = "team" if team_key and not method_key else "flow"
+
+    # 绑了数字员工时：决策/任务以员工为准，机器人侧旧字段清空（避免双源）
+    if employee_ids:
+        method_key = ""
+        team_key = ""
+        decision_method_key = ""
+        bind_type = "flow"
 
     if "executeTimeoutSec" in payload:
         execute_timeout = parse_execute_timeout_sec(payload.get("executeTimeoutSec"))
@@ -152,20 +220,52 @@ def save_robot(payload: Dict[str, Any]) -> SessionRobot:
     if "desiredStatus" in payload and payload.get("desiredStatus"):
         desired = str(payload["desiredStatus"])
 
+    # 输出映射默认：有员工时按默认/第一位员工 bindType；否则按机器人自身
+    effective_bind = bind_type
+    if employee_ids:
+        try:
+            from src.flowgame.digital_employee import store as employee_store
+
+            pick = default_employee_id or employee_ids[0]
+            emp = employee_store.get_employee(pick)
+            if emp:
+                effective_bind = emp.bindType
+        except Exception:  # noqa: BLE001
+            pass
+
+    default_out = (
+        DEFAULT_TEAM_OUTPUT_MAPPING
+        if effective_bind == "team"
+        else DEFAULT_OUTPUT_MAPPING
+    )
+    if "outputMapping" in payload:
+        output_mapping = normalize_mappings(payload.get("outputMapping"), default_out)
+    elif existing and existing.outputMapping:
+        output_mapping = existing.outputMapping
+    else:
+        output_mapping = normalize_mappings(None, default_out)
+
     robot = SessionRobot(
         robotId=robot_id,
         name=str(payload.get("name") or "").strip() or robot_id,
         type=(payload.get("type") or "wecom_aibot"),  # type: ignore[arg-type]
         botId=str(payload.get("botId") or (existing.botId if existing else "")).strip(),
         secret=secret,
+        employeeIds=employee_ids,
+        employeeId=employee_ids[0] if employee_ids else "",
+        defaultEmployeeId=default_employee_id,
+        routerApiKey=router_api_key,
+        routerBaseUrl=router_base_url,
+        routerModel=router_model,
+        bindType=bind_type,
         methodKey=method_key,
+        teamKey=team_key,
+        decisionMethodKey=decision_method_key,
         executeTimeoutSec=execute_timeout,
         inputMapping=normalize_mappings(
             payload.get("inputMapping"), DEFAULT_INPUT_MAPPING
         ),
-        outputMapping=normalize_mappings(
-            payload.get("outputMapping"), DEFAULT_OUTPUT_MAPPING
-        ),
+        outputMapping=output_mapping,
         desiredStatus=desired,  # type: ignore[arg-type]
         runtimeStatus=existing.runtimeStatus if existing else "stopped",
         runtimeMessage=existing.runtimeMessage if existing else "",
@@ -180,6 +280,24 @@ def save_robot(payload: Dict[str, Any]) -> SessionRobot:
         raise ValueError("botId 不能为空")
     if not robot.secret:
         raise ValueError("secret 不能为空")
+    if robot.employeeIds:
+        from src.flowgame.digital_employee import store as employee_store
+
+        for eid in robot.employeeIds:
+            emp = employee_store.get_employee(eid)
+            if not emp:
+                raise ValueError(f"数字员工不存在: {eid}")
+        if len(robot.employeeIds) >= 2:
+            from src.flowgame.robot_channel.employee_router import resolve_router_api_key
+
+            if not resolve_router_api_key(robot.routerApiKey):
+                # 允许保存，启动/路由时再失败回退默认员工；此处仅提示性不拦截
+                pass
+    elif robot.bindType == "team" and not robot.teamKey:
+        raise ValueError("bindType=team 时须填写 teamKey")
+    if robot.bindType == "flow" and not robot.methodKey and not robot.employeeIds:
+        # 允许先保存未绑定，启动时再校验；与旧行为一致（methodKey 可空）
+        pass
 
     _write_json(robot_data_key(robot.robotId), robot.to_dict(mask_secret=False))
     _index_add(robot.robotId)

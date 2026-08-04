@@ -29,6 +29,7 @@ from wecom_aibot_sdk.types import WeComMediaType
 
 from ._util import (
     DOWNLOAD_DIR,
+    ENV_ROBOT_ID,
     load_last_chatid,
     resolve_bot_creds,
     resolve_chatid,
@@ -265,17 +266,108 @@ async def _collect_messages_async(
         await client.disconnect()
 
 
+def _resolve_via(via: str | None) -> str:
+    text = (via or "auto").strip().lower()
+    if text in {"worker", "queue", "long"}:
+        return "worker"
+    if text in {"direct", "short", "ws"}:
+        return "direct"
+    return "auto"
+
+
+def _resolve_robot_id(robot_id: str | None = None) -> str:
+    import os
+
+    return (robot_id or os.getenv(ENV_ROBOT_ID) or "").strip()
+
+
+def _try_send_via_worker(
+    *,
+    robot_id: str,
+    msgtype: str,
+    chatid: str,
+    content: str = "",
+    file_path: str = "",
+    media_type: str = "",
+    wait_sec: float = 30,
+) -> dict[str, Any] | None:
+    """投递 Worker 出站队列；失败返回 None 以便回退短连。"""
+    try:
+        from src.flowgame.robot_channel import store as robot_store
+        from src.flowgame.robot_channel.outbound import (
+            enqueue_outbound,
+            wait_outbound_result,
+        )
+
+        if not robot_store.is_worker_online():
+            logger.info("Worker 未在线，aibot 回退短连接 robotId=%s", robot_id)
+            return None
+        req_id = enqueue_outbound(
+            robot_id,
+            msgtype=msgtype,
+            content=content,
+            chatid=chatid,
+            file_path=file_path,
+            media_type=media_type,
+        )
+        result = wait_outbound_result(req_id, timeout_sec=wait_sec)
+        if result.get("ok"):
+            return result
+        logger.warning(
+            "Worker 出站未成功 reqId=%s err=%s，将回退短连接",
+            req_id,
+            result.get("error"),
+        )
+        # via=worker 强制时仍返回失败结果；由调用方决定
+        return result
+    except Exception as exc:  # noqa: BLE001
+        logger.info("投递 Worker 队列失败，回退短连接: %s", exc)
+        return None
+
+
 def send_markdown(
     content: str,
     chatid: str | None = None,
     *,
     bot_id: str | None = None,
     secret: str | None = None,
+    via: str | None = "auto",
+    robot_id: str | None = None,
+    wait_sec: float = 30,
 ) -> dict[str, Any]:
-    """主动发送一条 markdown 消息。"""
-    bid, sec = resolve_bot_creds(bot_id, secret)
+    """主动发送一条 markdown。
+
+    ``via``:
+      - ``auto``（默认）：有 robotId 且 Worker 在线 → 走 Worker 长连接队列；否则短连
+      - ``worker``：强制走 Worker 队列
+      - ``direct``：强制短连（connect→send→disconnect）
+    """
     cid = resolve_chatid(chatid)
-    return run_async(_send_markdown_async(cid, content, bot_id=bid, secret=sec))
+    mode = _resolve_via(via)
+    rid = _resolve_robot_id(robot_id)
+
+    if mode in {"auto", "worker"} and rid:
+        queued = _try_send_via_worker(
+            robot_id=rid,
+            msgtype="markdown",
+            chatid=cid,
+            content=content,
+            wait_sec=wait_sec,
+        )
+        if queued is not None and queued.get("ok"):
+            return queued
+        if mode == "worker":
+            return queued or {
+                "ok": False,
+                "error": "Worker 发送失败且未回退短连",
+                "via": "worker",
+            }
+
+    bid, sec = resolve_bot_creds(bot_id, secret)
+    out = run_async(_send_markdown_async(cid, content, bot_id=bid, secret=sec))
+    if isinstance(out, dict):
+        out.setdefault("via", "direct")
+    return out
 
 
 def send_file(
@@ -285,15 +377,47 @@ def send_file(
     media_type: WeComMediaType | None = None,
     bot_id: str | None = None,
     secret: str | None = None,
+    via: str | None = "auto",
+    robot_id: str | None = None,
+    wait_sec: float = 60,
 ) -> dict[str, Any]:
-    """上传本地文件并发送（按扩展名推断 image/file/voice/video）。"""
-    bid, sec = resolve_bot_creds(bot_id, secret)
+    """上传本地文件并发送（按扩展名推断 image/file/voice/video）。
+
+    ``via`` 语义同 ``send_markdown``。
+    """
     cid = resolve_chatid(chatid)
-    return run_async(
+    path = Path(file_path)
+    mode = _resolve_via(via)
+    rid = _resolve_robot_id(robot_id)
+    mtype = media_type or guess_media_type(path)
+
+    if mode in {"auto", "worker"} and rid:
+        queued = _try_send_via_worker(
+            robot_id=rid,
+            msgtype=str(mtype),
+            chatid=cid,
+            file_path=str(path.expanduser()),
+            media_type=str(mtype),
+            wait_sec=wait_sec,
+        )
+        if queued is not None and queued.get("ok"):
+            return queued
+        if mode == "worker":
+            return queued or {
+                "ok": False,
+                "error": "Worker 发送失败且未回退短连",
+                "via": "worker",
+            }
+
+    bid, sec = resolve_bot_creds(bot_id, secret)
+    out = run_async(
         _upload_and_send_file_async(
             cid, file_path, bot_id=bid, secret=sec, media_type=media_type
         )
     )
+    if isinstance(out, dict):
+        out.setdefault("via", "direct")
+    return out
 
 
 def collect_messages(

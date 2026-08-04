@@ -142,9 +142,16 @@ qiyeweixing/
 - **本地一键**：`APP_ENV=dev python run.py` 会自动拉起 Worker（`FLOWGAME_ROBOT_AUTOSTART=true`）
 - **单独运行**：`python -m src.flowgame.robot_channel.worker`
 - **API 多 workers**：安全；监听只在 Worker 单实例里
-- 收到消息后 Worker 按映射调用 `POST /execute`，再按输出映射回发：
-  - `reply_markdown` / `reply_text` → 文字
-  - `reply_file` → 本地文件路径（可数组）；与文字同时有时 **先文后文件**
-- 启动时创建工作空间：`robot_space/qiyeweixing/{robotId}/`，流程变量注入 `robotSpace`
+- 收到消息后 Worker 按链路执行：
+  - **数字员工**（`employeeIds`）：可绑多名；决策目标 + 任务目标挂在员工上；会话机器人只绑通道 + 员工
+  - **自动路由**（≥2 名员工）：按员工「说明」调用 LLM（默认 `deepseek-v4-flash`）选出 `employeeId`；失败用 `defaultEmployeeId`
+  - **决策流程**（员工可选 `decisionMethodKey`）：先跑；按「输出映射」即时回发后，`shouldRun=false` 则结束，`true` 再跑任务目标
+  - **任务目标**（员工 `bindType` + `methodKey`/`teamKey`）：决策通过或不配决策时执行
+  - 兼容：旧机器人无员工时仍可直绑决策/任务
+  - `flow`：`POST /execute`（methodKey）
+  - `team`：进程内跑 AgentTeam（teamKey），并把 `robotId` / `employeeId` / `robotSpace` / `chatId` / `botId` / `wecomBotSecret` 等写入黑板（回发映射前会脱敏 secret）；执行期间仍临时注入企微凭证 env 作为兜底
+  - 再按输出映射回发：`reply_markdown` / `reply_text` / `reply_file`（可数组；与文字同时有时 **先文后文件**）
+- 流程内 `aibot.send_*`：默认 `via=auto`，有 `robotId` 且 Worker 在线时走 Redis 出站队列（Worker 长连接发），否则短连；`via=worker|direct` 可强制
+- 启动时创建工作空间：`robot_space/qiyeweixing/{robotId}/`，变量注入 `robotSpace`
 
-相关代码：`src/flowgame/robot_channel/`（`store` / `runtime` / `worker` / `spawn` / `router`）。
+相关代码：`src/flowgame/digital_employee/`、`src/flowgame/robot_channel/`（含 `employee_router`）。
