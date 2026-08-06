@@ -129,6 +129,9 @@ class SessionRobot:
     defaultEmployeeId: str = ""
     # 路由 LLM（仅多员工时使用）；Key 空则回落 DEEPSEEK_API_KEY
     routerApiKey: str = ""
+    # 预置厂家：deepseek / openai / qwen / moonshot / zhipu（决定接口地址）
+    routerProvider: str = "deepseek"
+    # 兼容旧数据；有 routerProvider 时执行以厂家为准，忽略自定义 URL
     routerBaseUrl: str = ""
     routerModel: str = ""
     # 以下为兼容旧数据：无员工时仍可直接绑决策/任务
@@ -241,6 +244,7 @@ class SessionRobot:
             "defaultEmployeeId": self.defaultEmployeeId,
             "routerApiKey": router_key,
             "hasRouterApiKey": bool(self.routerApiKey),
+            "routerProvider": self.routerProvider or "deepseek",
             "routerBaseUrl": self.routerBaseUrl,
             "routerModel": self.routerModel or default_router_model(),
             "bindType": self.bindType,
@@ -310,20 +314,6 @@ class SessionRobot:
                 if bind_type == "team"
                 else DEFAULT_OUTPUT_MAPPING
             )
-        bind_type = normalize_bind_type(data.get("bindType"))
-        inputs = data.get("inputMapping") or DEFAULT_INPUT_MAPPING
-        if "outputMapping" in data:
-            outputs = data.get("outputMapping") or (
-                DEFAULT_TEAM_OUTPUT_MAPPING
-                if bind_type == "team"
-                else DEFAULT_OUTPUT_MAPPING
-            )
-        else:
-            outputs = (
-                DEFAULT_TEAM_OUTPUT_MAPPING
-                if bind_type == "team"
-                else DEFAULT_OUTPUT_MAPPING
-            )
         employee_ids = normalize_employee_ids(
             data.get("employeeIds"),
             legacy_employee_id=str(data.get("employeeId") or "").strip(),
@@ -338,6 +328,7 @@ class SessionRobot:
             employeeId=employee_ids[0] if employee_ids else "",
             defaultEmployeeId=str(data.get("defaultEmployeeId") or "").strip(),
             routerApiKey=str(data.get("routerApiKey") or ""),
+            routerProvider=str(data.get("routerProvider") or "deepseek").strip() or "deepseek",
             routerBaseUrl=str(data.get("routerBaseUrl") or "").strip(),
             routerModel=str(data.get("routerModel") or "").strip(),
             bindType=bind_type,

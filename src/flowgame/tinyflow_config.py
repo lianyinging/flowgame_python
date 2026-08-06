@@ -5,8 +5,6 @@ import os
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol
 
-from openai import OpenAI
-
 from src.flowgame.qdrant.hacr_config import CHUNKING_VERSION_LLM_HACR
 
 import logging
@@ -30,13 +28,17 @@ class SearchEngineProvider(Protocol):
 
 
 class DeepSeekLlmClient:
-    """OpenAI-compatible LLM client for LlmNode."""
+    """OpenAI-compatible LLM client for LlmNode / Team（内部走统一 LlmClient）。"""
 
     def __init__(self) -> None:
-        api_key = os.getenv("DEEPSEEK_API_KEY", "").strip() or "not-configured"
-        base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
-        self._model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        from src.flowgame.llm import LlmClient, default_api_key, default_base_url, default_model
+
+        self._model = default_model()
+        self._client = LlmClient(
+            api_key=default_api_key() or "not-configured",
+            base_url=default_base_url(),
+            model=self._model,
+        )
 
     def chat(
         self,
@@ -46,14 +48,13 @@ class DeepSeekLlmClient:
         model: Optional[str] = None,
     ) -> Dict[str, Any]:
         try:
-            response = self._client.chat.completions.create(
-                model=(model or self._model),
-                messages=messages,
+            result = self._client.chat(
+                messages,
+                model=model or self._model,
                 temperature=temperature,
                 top_p=top_p,
             )
-            content = response.choices[0].message.content or ""
-            return {"content": content}
+            return result.to_legacy_dict()
         except Exception as exc:
             logger.error("LlmNode chat failed: %s", exc)
             return {"error": str(exc)}

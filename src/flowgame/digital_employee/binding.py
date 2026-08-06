@@ -54,6 +54,15 @@ class BindingResolveError(ValueError):
     """数字员工不存在或未绑定任务。"""
 
 
+class RouteGuideNeeded(Exception):
+    """多员工路由判定为闲聊/无法匹配，应直接回发引导文案。"""
+
+    def __init__(self, reply: str, reason: str = ""):
+        super().__init__(reason or reply)
+        self.reply = (reply or "").strip()
+        self.reason = (reason or "").strip()
+
+
 def _binding_from_employee(
     emp: DigitalEmployee,
     *,
@@ -158,7 +167,7 @@ def resolve_binding_for_message(
     收到消息后解析绑定：
     - 0 员工：legacy
     - 1 员工：直接用
-    - ≥2：LLM 按描述路由（失败用默认员工）
+    - ≥2：LLM 按描述路由；闲聊/无法匹配时抛 RouteGuideNeeded
     """
     employees = load_robot_employees(robot)
     if not employees:
@@ -169,16 +178,19 @@ def resolve_binding_for_message(
 
     from src.flowgame.robot_channel.employee_router import route_employee_id
 
-    picked_id, reason = route_employee_id(
+    routed = route_employee_id(
         message=message or "",
         employees=employees,
         default_employee_id=robot.defaultEmployeeId,
         api_key=robot.routerApiKey,
+        provider=robot.routerProvider,
         base_url=robot.routerBaseUrl,
         model=robot.routerModel,
     )
-    if not picked_id:
-        raise BindingResolveError(f"无法路由数字员工: {reason}")
-    binding = resolve_robot_binding(robot, employee_id=picked_id)
+    if routed.should_guide:
+        raise RouteGuideNeeded(routed.guideReply, routed.reason)
+    if not routed.employeeId:
+        raise BindingResolveError(f"无法路由数字员工: {routed.reason}")
+    binding = resolve_robot_binding(robot, employee_id=routed.employeeId)
     binding.source = "routed"
     return binding

@@ -171,6 +171,11 @@ def save_robot(payload: Dict[str, Any]) -> SessionRobot:
     elif not default_employee_id and employee_ids:
         default_employee_id = employee_ids[0]
 
+    if "routerProvider" in payload:
+        router_provider = str(payload.get("routerProvider") or "").strip() or "deepseek"
+    else:
+        router_provider = (existing.routerProvider if existing else "") or "deepseek"
+
     if "routerBaseUrl" in payload:
         router_base_url = str(payload.get("routerBaseUrl") or "").strip()
     else:
@@ -255,6 +260,7 @@ def save_robot(payload: Dict[str, Any]) -> SessionRobot:
         employeeId=employee_ids[0] if employee_ids else "",
         defaultEmployeeId=default_employee_id,
         routerApiKey=router_api_key,
+        routerProvider=router_provider,
         routerBaseUrl=router_base_url,
         routerModel=router_model,
         bindType=bind_type,

@@ -6,12 +6,15 @@ from unittest.mock import MagicMock, patch
 
 from src.flowgame.digital_employee.binding import (
     BindingResolveError,
+    RouteGuideNeeded,
     resolve_binding_for_message,
     resolve_robot_binding,
     robot_has_task_binding,
 )
 from src.flowgame.digital_employee.models import DigitalEmployee
 from src.flowgame.robot_channel.employee_router import (
+    RouteResult,
+    build_capability_guide,
     pick_fallback_employee_id,
     route_employee_id,
 )
@@ -89,9 +92,10 @@ class DigitalEmployeeBindingTests(unittest.TestCase):
 class EmployeeRouterTests(unittest.TestCase):
     def test_single_skips_llm(self) -> None:
         emp = DigitalEmployee(employeeId="e1", name="A", methodKey="f1")
-        eid, reason = route_employee_id(message="hi", employees=[emp])
-        self.assertEqual(eid, "e1")
-        self.assertIn("跳过", reason)
+        routed = route_employee_id(message="hi", employees=[emp])
+        self.assertEqual(routed.employeeId, "e1")
+        self.assertIn("跳过", routed.reason)
+        self.assertFalse(routed.should_guide)
 
     def test_fallback_default(self) -> None:
         emps = [
@@ -116,27 +120,80 @@ class EmployeeRouterTests(unittest.TestCase):
                 methodKey="f2",
             ),
         ]
-        mock_resp = MagicMock()
-        mock_resp.choices = [
-            MagicMock(message=MagicMock(content='{"employeeId":"e2","reason":"客服"}'))
-        ]
-        mock_client = MagicMock()
-        mock_client.chat.completions.create.return_value = mock_resp
+        mock_result = MagicMock()
+        mock_result.ok = True
+        mock_result.content = '{"action":"route","employeeId":"e2","reason":"客服"}'
+        mock_result.error = ""
         with patch(
-            "src.flowgame.robot_channel.employee_router.OpenAI",
-            return_value=mock_client,
-        ), patch(
+            "src.flowgame.robot_channel.employee_router.LlmClient"
+        ) as mock_cls, patch(
             "src.flowgame.robot_channel.employee_router.resolve_router_api_key",
             return_value="sk-test",
         ):
-            eid, reason = route_employee_id(
+            mock_cls.return_value.chat.return_value = mock_result
+            routed = route_employee_id(
                 message="产品怎么退款",
                 employees=emps,
                 default_employee_id="e1",
                 api_key="sk-test",
+                provider="qwen",
+                model="qwen-plus",
             )
-        self.assertEqual(eid, "e2")
-        self.assertIn("LLM", reason)
+        self.assertEqual(routed.employeeId, "e2")
+        self.assertFalse(routed.should_guide)
+        call_kw = mock_cls.return_value.chat.call_args.kwargs
+        self.assertEqual(call_kw.get("provider"), "qwen")
+        self.assertEqual(call_kw.get("model"), "qwen-plus")
+        self.assertTrue(call_kw.get("base_url") in (None, ""))
+
+    def test_route_guide_for_chitchat(self) -> None:
+        emps = [
+            DigitalEmployee(
+                employeeId="e1",
+                name="情报",
+                description="做情报汇总",
+                methodKey="f1",
+            ),
+            DigitalEmployee(
+                employeeId="e2",
+                name="客服",
+                description="回答产品问题",
+                methodKey="f2",
+            ),
+        ]
+        mock_result = MagicMock()
+        mock_result.ok = True
+        mock_result.content = (
+            '{"action":"guide","reason":"闲聊",'
+            '"guideReply":"我可以帮你做情报汇总或回答产品问题。"}'
+        )
+        mock_result.error = ""
+        with patch(
+            "src.flowgame.robot_channel.employee_router.LlmClient"
+        ) as mock_cls, patch(
+            "src.flowgame.robot_channel.employee_router.resolve_router_api_key",
+            return_value="sk-test",
+        ):
+            mock_cls.return_value.chat.return_value = mock_result
+            routed = route_employee_id(
+                message="你好呀",
+                employees=emps,
+                default_employee_id="e1",
+                api_key="sk-test",
+            )
+        self.assertTrue(routed.should_guide)
+        self.assertEqual(routed.employeeId, "")
+        self.assertIn("情报汇总", routed.guideReply)
+
+    def test_capability_guide_fallback(self) -> None:
+        emps = [
+            DigitalEmployee(employeeId="e1", name="情报", description="做情报汇总"),
+            DigitalEmployee(employeeId="e2", name="客服", description="回答产品问题"),
+        ]
+        text = build_capability_guide(emps)
+        self.assertIn("情报", text)
+        self.assertIn("客服", text)
+        self.assertIn("可以帮你做这些事", text)
 
     def test_resolve_binding_for_message_routes(self) -> None:
         e1 = DigitalEmployee(employeeId="e1", name="A", description="情报", methodKey="f1")
@@ -156,12 +213,39 @@ class EmployeeRouterTests(unittest.TestCase):
             side_effect=get_emp,
         ), patch(
             "src.flowgame.robot_channel.employee_router.route_employee_id",
-            return_value=("e2", "ok"),
+            return_value=RouteResult(employeeId="e2", reason="ok"),
         ):
             binding = resolve_binding_for_message(robot, "你好")
             self.assertEqual(binding.employeeId, "e2")
             self.assertEqual(binding.source, "routed")
             self.assertEqual(binding.methodKey, "f2")
+
+    def test_resolve_binding_raises_guide(self) -> None:
+        e1 = DigitalEmployee(employeeId="e1", name="A", description="情报", methodKey="f1")
+        e2 = DigitalEmployee(employeeId="e2", name="B", description="客服", methodKey="f2")
+        robot = SessionRobot(
+            robotId="r1",
+            employeeIds=["e1", "e2"],
+            defaultEmployeeId="e1",
+            routerApiKey="sk-x",
+        )
+
+        def get_emp(eid: str):
+            return {"e1": e1, "e2": e2}.get(eid)
+
+        with patch(
+            "src.flowgame.digital_employee.store.get_employee",
+            side_effect=get_emp,
+        ), patch(
+            "src.flowgame.robot_channel.employee_router.route_employee_id",
+            return_value=RouteResult(
+                reason="闲聊",
+                guideReply="我可以做情报或客服。",
+            ),
+        ):
+            with self.assertRaises(RouteGuideNeeded) as ctx:
+                resolve_binding_for_message(robot, "在吗")
+            self.assertIn("情报", ctx.exception.reply)
 
 
 if __name__ == "__main__":

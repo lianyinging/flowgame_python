@@ -21,6 +21,7 @@ from src.flowgame.robot_channel.employee_router import (
     default_router_base_url,
 )
 from src.flowgame.robot_channel.runtime import RobotRuntimeError, session_robot_manager
+from src.flowgame.llm.providers import LLM_PROVIDERS
 
 robot_router = APIRouter()
 
@@ -105,10 +106,18 @@ def robot_defaults_api():
                 {"value": "team", "label": "任务目标：AgentTeam（teamKey）"},
             ],
             "note": "决策目标与任务目标请在「数字员工」上配置；会话机器人可绑定多名员工，≥2 时按描述 LLM 自动路由。",
+            "routerProviders": [
+                {"value": p.id, "label": p.label}
+                for p in LLM_PROVIDERS.values()
+            ],
+            "routerModelsByProvider": {
+                pid: [{"value": m, "label": m} for m in p.models]
+                for pid, p in LLM_PROVIDERS.items()
+            },
+            "defaultRouterProvider": "deepseek",
             "routerModels": [
-                {"value": "deepseek-v4-flash", "label": "deepseekFlash（deepseek-v4-flash）"},
-                {"value": "deepseek-chat", "label": "deepseek-chat"},
-                {"value": "deepseek-reasoner", "label": "deepseek-reasoner"},
+                {"value": m, "label": m}
+                for m in LLM_PROVIDERS["deepseek"].models
             ],
             "defaultRouterModel": default_router_model(),
             "defaultRouterBaseUrl": default_router_base_url() or DEFAULT_ROUTER_BASE_URL,

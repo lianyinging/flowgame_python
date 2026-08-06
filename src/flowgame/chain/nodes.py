@@ -9,9 +9,12 @@ import requests
 from src.flowgame.chain.base_node import BaseNode
 from src.flowgame.chain.chain import Chain
 from src.flowgame.chain.enums import DataType, RefType
-from src.flowgame.chain.js_engine import eval_js, eval_python
+from src.flowgame.chain.js_engine import eval_js, eval_python, strip_markdown_code_fence
 from src.flowgame.chain.parameter import Parameter
-from src.flowgame.chain.field_resolver import resolve_named_field
+from src.flowgame.chain.field_resolver import (
+    resolve_config_template_field,
+    resolve_named_field,
+)
 from src.flowgame.chain.template import format_template
 
 
@@ -30,117 +33,12 @@ def _parse_optional_json_object(raw: Any) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _extract_openai_chat_content(payload: Any) -> str:
-    """从 OpenAI 兼容 chat.completion 中提取助手文本。
-
-    DeepSeek 等推理模型常把最终答复写在 reasoning_content，而 content 为空；
-    此时应回退到 reasoning_content，并尽量抽出其中的 JSON 决策块。
-    """
-    if not isinstance(payload, dict):
-        return ""
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or not choices:
-        return ""
-    first = choices[0]
-    if not isinstance(first, dict):
-        return ""
-
-    candidates: List[str] = []
-    message = first.get("message")
-    if isinstance(message, dict):
-        for key in ("content", "reasoning_content", "reasoning"):
-            raw = message.get(key)
-            if raw is None:
-                continue
-            text = str(raw).strip()
-            if text:
-                candidates.append(text)
-    text_field = first.get("text")
-    if text_field is not None:
-        text = str(text_field).strip()
-        if text:
-            candidates.append(text)
-
-    if not candidates:
-        return ""
-
-    # 优先非空 content（已在 candidates[0] 若存在）；若仅有推理字段，尝试抽出 JSON
-    primary = candidates[0]
-    if primary.lstrip().startswith("{") and primary.rstrip().endswith("}"):
-        return primary
-
-    for text in candidates:
-        extracted = _extract_trailing_json_object(text)
-        if extracted:
-            return extracted
-    return primary
-
-
-def _extract_trailing_json_object(text: str) -> str:
-    """从混杂文本中提取最后一个完整 JSON 对象（主控决策常见形态）。"""
-    raw = (text or "").strip()
-    if not raw:
-        return ""
-    if raw.startswith("{") and raw.endswith("}"):
-        try:
-            json.loads(raw)
-            return raw
-        except json.JSONDecodeError:
-            pass
-    end = raw.rfind("}")
-    if end < 0:
-        return ""
-    depth = 0
-    start = -1
-    for i in range(end, -1, -1):
-        ch = raw[i]
-        if ch == "}":
-            depth += 1
-        elif ch == "{":
-            depth -= 1
-            if depth == 0:
-                start = i
-                break
-    if start < 0:
-        return ""
-    candidate = raw[start : end + 1]
-    try:
-        json.loads(candidate)
-        return candidate
-    except json.JSONDecodeError:
-        return ""
-
-
-def _format_api_error_message(status_code: int, payload: Any, request_url: str = "") -> str:
-    prefix = f"HTTP {status_code}"
-    if request_url:
-        prefix = f"{prefix} [{request_url}]"
-    if isinstance(payload, dict):
-        err = payload.get("error")
-        if isinstance(err, dict):
-            msg = err.get("message") or err.get("msg")
-            if msg:
-                return f"{prefix}: {msg}"
-        if payload.get("message"):
-            return f"{prefix}: {payload.get('message')}"
-        if payload.get("_text"):
-            text = str(payload["_text"]).strip()
-            if text:
-                return f"{prefix}: {text[:500]}"
-    return f"{prefix}: 模型接口请求失败"
-
-
-def normalize_chat_completions_url(url: str) -> str:
-    """将仅填域名/根路径的地址补全为 OpenAI 兼容 Chat Completions URL。"""
-    text = (url or "").strip().rstrip("/")
-    if not text:
-        return text
-    lower = text.lower()
-    if "/chat/completions" in lower:
-        return text
-    if lower.endswith("/v1"):
-        return f"{text}/chat/completions"
-    return f"{text}/v1/chat/completions"
+# 兼容旧 import：逻辑已迁至 src.flowgame.llm
+from src.flowgame.llm import (  # noqa: E402
+    extract_chat_content as _extract_openai_chat_content,
+    format_api_error_message as _format_api_error_message,
+    normalize_chat_completions_url,
+)
 
 
 def _dict_get_case_insensitive(data: Dict[str, Any], key: str) -> Any:
@@ -553,13 +451,15 @@ class LlmNode(BaseNode):
 
 
 class LlmApiNode(BaseNode):
-    """模型调用：HTTP 请求 OpenAI 兼容 Chat Completions 接口。"""
+    """模型调用：经统一 LlmClient，按预置厂家调用（不允许自定义 URL）。"""
 
     def __init__(self) -> None:
         super().__init__()
+        self.model_provider: str = "deepseek"
+        # 兼容旧数据：仅用于推断厂家，执行时不再直连自定义 URL
         self.model_api_url: Optional[str] = None
         self.api_key: Optional[str] = None
-        self.model_name: str = "gpt-4o-mini"
+        self.model_name: str = "deepseek-v4-flash"
         self.auth_type: str = "bearer"
         self.auth_header_name: str = "Authorization"
         self.request_timeout_ms: int = 60000
@@ -572,19 +472,37 @@ class LlmApiNode(BaseNode):
         self.extra_body_json: Optional[str] = None
 
     def execute(self, chain: Chain) -> Dict[str, Any]:
-        raw_url = (self.model_api_url or "").strip()
-        if not raw_url:
-            return self._failure("模型接口地址未配置")
-        url = normalize_chat_completions_url(raw_url)
+        from src.flowgame.llm import LlmClient, normalize_provider_id
 
         params = chain.get_parameter_values(self)
         user_message = resolve_named_field(chain, self, "userMessage", None)
         if user_message:
             params["userMessage"] = user_message
 
-        # 模板根：链路 memory（含 Team 注入的 status_card/topic 等）+ 节点参数
-        # 仅认 {{ var }}；{var} 不会被替换（避免破坏 Prompt 里的 JSON 示例）
+        # 模板根：链路 memory + 节点入参；厂家/模型/Key 支持 {{param}} 替换
         template_root: Dict[str, Any] = {**(chain.memory or {}), **params}
+
+        provider_raw = resolve_config_template_field(
+            chain, self, self.model_provider, template_root
+        )
+        model_raw = resolve_config_template_field(
+            chain, self, self.model_name, template_root
+        )
+        api_key = resolve_config_template_field(
+            chain, self, self.api_key, template_root
+        )
+
+        if (self.api_key or "").strip() and not api_key:
+            return self._failure(
+                "API Key 模板未解析到有效值。请在「输入参数」中为 apiKey 绑定上游变量或填写真实 Key，"
+                "字段里写 {{apiKey}}；不要把入参的固定值也填成 {{apiKey}}"
+            )
+
+        provider = normalize_provider_id(
+            provider_raw,
+            legacy_url=self.model_api_url or "",
+        )
+        model_name = model_raw or None
 
         messages: List[Dict[str, str]] = []
         if self.system_prompt:
@@ -603,58 +521,35 @@ class LlmApiNode(BaseNode):
 
         messages.append({"role": "user", "content": user_content})
 
-        body: Dict[str, Any] = {
-            "model": self.model_name or "gpt-4o-mini",
-            "messages": messages,
-            "temperature": self.temperature,
-        }
-        if self.max_tokens > 0:
-            body["max_tokens"] = self.max_tokens
-        if self.response_format == "json_object":
-            body["response_format"] = {"type": "json_object"}
-
         extra_body = _parse_optional_json_object(self.extra_body_json)
-        if extra_body:
-            body.update(extra_body)
-
-        headers: Dict[str, str] = {"Content-Type": "application/json"}
-        api_key = (self.api_key or "").strip()
-        if api_key:
-            if self.auth_type == "header":
-                header_name = (self.auth_header_name or "Authorization").strip() or "Authorization"
-                headers[header_name] = api_key
-            else:
-                headers["Authorization"] = f"Bearer {api_key}"
-
         extra_headers = _parse_optional_json_object(self.extra_headers_json)
-        for key, value in extra_headers.items():
-            if value is not None:
-                headers[str(key)] = str(value)
-
         timeout_sec = max(1.0, self.request_timeout_ms / 1000.0)
-        try:
-            response = requests.post(url, json=body, headers=headers, timeout=timeout_sec)
-        except requests.RequestException as exc:
-            chain.stop_error(f"模型接口请求异常: {exc}")
-            return self._failure(str(exc))
+        response_format = (
+            "json_object" if self.response_format == "json_object" else None
+        )
 
-        raw: Any
-        try:
-            raw = response.json()
-        except ValueError:
-            raw = {"_text": response.text}
+        result = LlmClient().chat(
+            messages,
+            provider=provider,
+            model=model_name,
+            api_key=api_key,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens if self.max_tokens > 0 else None,
+            response_format=response_format,
+            timeout_sec=timeout_sec,
+            auth_type="bearer",
+            extra_headers=extra_headers,
+            extra_body=extra_body or None,
+        )
+        if not result.ok:
+            chain.stop_error(result.error or "模型接口请求失败")
+            return self._failure(result.error or "模型接口请求失败", result.raw)
 
-        if response.status_code >= 400:
-            message = _format_api_error_message(response.status_code, raw, url)
-            if response.status_code == 404 and raw_url != url:
-                message = (
-                    f"{message}（已自动补全为 {url}，若仍 404 请在节点填写完整 Chat Completions 地址）"
-                )
-            chain.stop_error(message)
-            return self._failure(message, raw)
-
-        content = _extract_openai_chat_content(raw)
-        return {"output": content, "errorMessage": "", "rawResponse": raw}
+        return {
+            "output": result.content,
+            "errorMessage": "",
+            "rawResponse": result.raw if isinstance(result.raw, dict) else {},
+        }
 
     def _failure(self, message: str, raw: Any = None) -> Dict[str, Any]:
         return {
@@ -674,10 +569,18 @@ class CodeNode(BaseNode):
         if not self.code or not str(self.code).strip():
             raise ValueError("Code is null or blank.")
         params = chain.get_parameter_values(self)
+        # 执行代码支持 {{code}} 等模板；否则字面量「{{code}}」会被 Python 当成集合字面量
+        # → TypeError: unhashable type: 'set'
+        template_root = dict(chain.memory or {})
+        template_root.update(params)
+        rendered = format_template(self.code, template_root)
+        rendered = strip_markdown_code_fence(rendered)
+        if not str(rendered).strip():
+            raise ValueError("Code is null or blank after template resolve.")
         if self.engine in ("python", "py"):
-            result = eval_python(self.code, chain.memory, extra=params)
+            result = eval_python(rendered, chain.memory, extra=params)
         else:
-            result = eval_js(self.code, chain.memory, extra=params)
+            result = eval_js(rendered, chain.memory, extra=params)
         return _normalize_code_result(result, self.output_defs)
 
 

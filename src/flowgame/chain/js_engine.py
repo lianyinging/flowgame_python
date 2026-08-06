@@ -3,11 +3,29 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
+# 上游模型常包一层 ```python ... ```
+_CODE_FENCE = re.compile(
+    r"^```(?:[\w+-]*)?\s*\r?\n?([\s\S]*?)\r?\n?```\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_markdown_code_fence(text: str) -> str:
+    """去掉首尾 markdown 代码围栏，返回可直接 exec/eval 的正文。"""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    m = _CODE_FENCE.match(s)
+    if m:
+        return (m.group(1) or "").strip()
+    return s
 
 # mini-racer 状态：None=未探测, True=可用, False=环境级不可用（硬熔断，进程内不再尝试）
 _MINI_RACER_USABLE: Optional[bool] = None

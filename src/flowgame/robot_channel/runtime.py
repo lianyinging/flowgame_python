@@ -22,6 +22,7 @@ from src.flowgame.robot_channel.bind_context import (
     team_reply_fallback,
 )
 from src.flowgame.robot_channel.mapping import apply_input_mapping, apply_output_mapping
+from src.flowgame.robot_channel.inbound_text import strip_at_mention_prefix
 from src.flowgame.robot_channel.models import SessionRobot, default_execute_timeout_sec
 from src.flowgame.robot_channel.qiyeweixing import ensure_wecom_import_path
 from src.flowgame.robot_channel.qiyeweixing._compat import ensure_typing_not_required
@@ -410,16 +411,41 @@ class _RobotConnection:
             voice = body.get("voice") or {}
             text = (voice.get("content") or "").strip()
 
+        raw_text = text or ""
+        text = strip_at_mention_prefix(raw_text, bot_name=robot.name or "")
+        if text != raw_text:
+            logger.info(
+                "机器人 %s 已去掉 @前缀 | raw=%s | text=%s",
+                robot.robotId,
+                raw_text[:120],
+                text[:120],
+            )
+
         inbound: Dict[str, Any] = {"text": text, "kind": kind, **meta}
         variables = apply_input_mapping(inbound, robot.inputMapping)
 
         from src.flowgame.digital_employee.binding import (
             BindingResolveError,
+            RouteGuideNeeded,
             resolve_binding_for_message,
         )
 
         try:
             binding = resolve_binding_for_message(robot, text or "")
+        except RouteGuideNeeded as guide:
+            logger.info(
+                "机器人 %s 路由引导用户 | reason=%s | text=%s",
+                robot.robotId,
+                guide.reason,
+                (text or "")[:120],
+            )
+            reply = guide.reply or "你好，请直接说明你的具体需求。"
+            try:
+                stream_id = generate_req_id_fn("stream")
+                await client.reply_stream(frame, stream_id, reply, True)
+            except Exception:  # noqa: BLE001
+                logger.exception("机器人 %s 引导回复失败", robot.robotId)
+            return
         except BindingResolveError as exc:
             logger.error("机器人 %s 绑定解析失败: %s", robot.robotId, exc)
             return

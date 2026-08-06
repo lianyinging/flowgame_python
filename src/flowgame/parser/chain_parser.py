@@ -283,13 +283,23 @@ class ChainParser:
         return node
 
     def _parse_llmapi(self, runtime: TinyflowRuntime, node_object: Dict[str, Any]):
+        from src.flowgame.llm import normalize_provider_id, resolve_provider_default_model
+
         node = LlmApiNode()
         data = get_data(node_object)
-        node.model_api_url = data.get("modelApiUrl")
+        legacy_url = str(data.get("modelApiUrl") or "").strip()
+        node.model_api_url = legacy_url or None
+        node.model_provider = normalize_provider_id(
+            data.get("modelProvider") or data.get("provider"),
+            legacy_url=legacy_url,
+        )
         node.api_key = data.get("apiKey")
-        node.model_name = (data.get("modelName") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-        node.auth_type = (data.get("authType") or "bearer").strip().lower()
-        node.auth_header_name = (data.get("authHeaderName") or "Authorization").strip()
+        default_model = resolve_provider_default_model(node.model_provider)
+        node.model_name = (
+            str(data.get("modelName") or "").strip() or default_model
+        )
+        node.auth_type = "bearer"
+        node.auth_header_name = "Authorization"
         node.request_timeout_ms = _parse_positive_int(data.get("requestTimeoutMs"), 60000)
         node.system_prompt = data.get("systemPrompt")
         node.user_prompt = data.get("userPrompt")
